@@ -117,7 +117,7 @@ A stochastic system can easily produce visually convincing anecdotes. The projec
 ## DEC-006 — No implementation before charter/learning-contract ratification
 
 **Date:** 2026-09-06  
-**Status:** ACTIVE GATE
+**Status:** COMPLETED
 
 ### Decision
 
@@ -127,6 +127,6 @@ Do not begin EXP-001 implementation until Jonathan has reviewed and explicitly r
 
 The framework is intended to prevent long-term conceptual drift. The founding purpose and learning method must therefore be owned by Jonathan rather than silently fixed by the assistant.
 
-### Completion condition
+### Completion
 
-Jonathan explicitly approves the two documents after review. Then update their status to `RATIFIED`, update this decision entry, and advance `CURRENT_STATE.md`.
+Jonathan explicitly ratified `PROJECT_CHARTER.md` v0.2 and `LEARNING_CONTRACT.md` v0.2 on 2026-09-06. The Stage 0A gate is closed. The project may advance to formal EXP-001 design, but this does not imply that EXP-001 implementation should begin before its question, assumptions, game definition, policy representation, evolutionary mechanism, evaluation protocol, and knowledge objectives are understood and documented.
