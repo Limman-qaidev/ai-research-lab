@@ -3,9 +3,9 @@
 **Project:** Artificial Intelligence Research Lab  
 **Owner:** Jonathan  
 **Version:** 0.2  
-**Status:** PROVISIONAL — must be explicitly ratified before EXP-001 implementation  
+**Status:** RATIFIED  
 **Created:** 2026-09-06  
-**Last refined:** 2026-09-06
+**Ratified:** 2026-09-06
 
 ## 1. Mission
 
@@ -205,16 +205,8 @@ Before a substantial new direction, ask:
 
 If the answer is mostly no, the work probably does not belong in the current project.
 
-## 11. Ratification gate
+## 11. Ratification
 
-This document was reconstructed and refined from the founding discussion so that project continuity is not lost. It remains intentionally provisional until Jonathan explicitly ratifies it.
+This charter was explicitly ratified by Jonathan on 2026-09-06 after reviewing and refining the mission, capability milestones, non-goals, and pedagogical intent.
 
-The current version incorporates Jonathan's stated objectives that:
-
-- after approximately six months, he should be able to identify which mechanism could address a specific problem and explain why it works;
-- after approximately two years, he should be able to design an experiment or new technique to explain or solve a problem;
-- he does not want AI assistance to cause loss of programming ability or independent technical reasoning;
-- he wants to understand what a model or mechanism does and why it is or is not the best option;
-- the laboratory should remain domain-general, with finance as one application among many rather than the organising principle.
-
-Only after explicit review and ratification should the status change from `PROVISIONAL` to `RATIFIED` and EXP-001 design advance beyond the current gate.
+Future amendments are allowed, but material changes should be deliberate, documented, and checked against the anti-drift principles above.
