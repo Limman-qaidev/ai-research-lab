@@ -1,181 +1,89 @@
 # CURRENT_STATE.md
 
 **Last updated:** 2026-09-06  
-**Project phase:** Stage 0A — operating framework and epistemic setup  
+**Project phase:** Stage 0B — formal design of EXP-001  
 **Implementation status:** NOT STARTED  
-**Next gate:** Jonathan reviews and ratifies/amends the charter and learning contract
+**Previous gate:** COMPLETED — charter and learning contract ratified  
+**Next task:** understand and formally define the Iterated Prisoner's Dilemma before designing code
 
-## 1. Origin of the project
+## 1. Stable project purpose
 
-Jonathan wants to move beyond superficial use of LLMs and AI tooling. He is especially interested in systems where multiple artificial agents or models interact, compete, cooperate, evolve, search, or collectively discover solutions.
+The repository is the authoritative memory of the Artificial Intelligence Research Lab.
 
-The motivating examples discussed include self-play systems, multi-agent learning, evolutionary search, program/heuristic discovery, and architectures in which a generator proposes candidates but an external evaluator or verifier decides what is actually good.
+Jonathan's long-term objective is to develop scientific and technical independence in AI: recognise which mechanisms may address a new problem, explain why they work, reproduce and critique research, adapt methods across domains, and eventually design original experiments, systems, techniques, or hypotheses.
 
-A central insight from the founding discussion is:
+The laboratory is domain-general. Finance may provide future applications, but it is not the organising principle.
 
-> Interesting AI systems are often not “one model answering one prompt”. They can be understood as combinations of representation, learning, interaction, search, optimisation, population dynamics, and evaluation.
+`PROJECT_CHARTER.md` v0.2 and `LEARNING_CONTRACT.md` v0.2 were explicitly ratified by Jonathan on 2026-09-06.
 
-Another central principle is:
+## 2. Pedagogical invariant
 
-> A weak or unreliable generator can still be useful when embedded inside a strong search-and-verification loop.
+The expected working sequence is:
 
-## 2. Pedagogical requirement
+`problem -> intuition -> formal model -> derivation -> algorithm -> design -> Jonathan implements -> assistant reviews -> experiment -> documentation`
 
-Jonathan explicitly does **not** want the assistant to generate finished code that he blindly copies and executes. He is concerned that excessive AI assistance is eroding recall and technical independence.
+The assistant should not default to complete generated implementations for core learning mechanisms. AI should amplify Jonathan's reasoning and programming capability, not replace it.
 
-The project should therefore maximise Jonathan’s own reconstruction, derivation, implementation, and documentation of the important mechanisms.
+## 3. Current technical direction
 
-The expected working pattern is:
-
-`question -> theory -> derivation -> design -> Jonathan implements -> assistant reviews -> experiment -> documentation`
-
-See `LEARNING_CONTRACT.md` for the authoritative rules.
-
-## 3. Continuity requirement
-
-Jonathan is concerned that long chats eventually lose fidelity, hit interaction limits, or drift away from the original idea. Therefore this repository, not any single chat, is the persistent project memory.
-
-A new chat should be able to reconstruct the project by reading the repository in the order specified in `AGENTS.md` and by using `docs/99_handoff/CHAT_BOOTSTRAP.md`.
-
-Important information must be transformed into durable project documentation rather than left only in conversation history.
-
-## 4. Current technical direction
-
-The agreed provisional learning sequence is:
+The learning spine remains:
 
 1. evolutionary games and population dynamics;
 2. single-agent reinforcement learning;
-3. deep RL and self-play;
+3. self-play;
 4. multi-agent reinforcement learning;
-5. emergent communication and population methods;
+5. population and league methods;
 6. search and planning;
 7. automated discovery;
 8. LLM-guided discovery;
-9. open-ended/hybrid systems.
+9. open-ended and hybrid systems.
 
-The deliberate choice is to **avoid starting with LLM multi-agent orchestration**. LLMs will be introduced later as components inside systems whose search, learning, and evaluation mechanisms are already understood.
+The project deliberately begins below the LLM-orchestration layer.
 
-## 5. Planned first experiment — EXP-001
+## 4. Active experiment direction — EXP-001
 
-**Title:** Evolutionary Iterated Prisoner’s Dilemma  
-**Status:** DESIGN CONCEPT ONLY — no code should be written yet
+**Working title:** Evolutionary Iterated Prisoner's Dilemma  
+**Status:** FORMAL DESIGN / LEARNING — NO IMPLEMENTATION YET
 
-### Why this experiment comes first
+### Why this comes first
 
-It allows Jonathan to study agents, policies, strategic interaction, fitness, selection, mutation, population dynamics, cooperation, exploitation, diversity, and non-transitivity without simultaneously introducing neural networks or gradient-based reinforcement learning.
+The experiment isolates strategic interaction, policies, fitness, selection, mutation, cooperation, exploitation, population dynamics, diversity, and non-transitivity before introducing neural networks or gradient-based reinforcement learning.
 
-### Provisional game
+### Provisional elements inherited from the founding discussion
 
-Each player chooses:
+- two actions: cooperate (`C`) and defect (`D`);
+- candidate payoff values: `T=5, R=3, P=1, S=0`;
+- stochastic memory-one policies as a candidate representation;
+- population-based evaluation and evolutionary selection/mutation;
+- multi-seed analysis and explicit population-level metrics.
 
-- `C`: cooperate;
-- `D`: defect.
+These remain provisional until Jonathan understands and can justify them. They are not implementation requirements merely because they appear here.
 
-Provisional payoff matrix:
+## 5. Immediate learning task
 
-|            | Opponent C | Opponent D |
-|------------|------------|------------|
-| Self C     | (3, 3)     | (0, 5)     |
-| Self D     | (5, 0)     | (1, 1)     |
+Before designing classes, files, APIs, or code, Jonathan should understand from first principles:
 
-So `T = 5`, `R = 3`, `P = 1`, `S = 0`, with `T > R > P > S` and `2R > T + S`.
+1. what the one-shot Prisoner's Dilemma is;
+2. why the inequalities `T > R > P > S` define its strategic tension;
+3. why `2R > T + S` is commonly imposed in the iterated setting;
+4. why repeating the game changes the strategic problem even though the stage-game payoffs are unchanged;
+5. what information an agent/policy can condition on;
+6. why a memory-one stochastic policy can be represented by conditional cooperation probabilities;
+7. what is gained and lost by restricting the strategy space to memory-one policies.
 
-### Provisional policy representation
+Only after these ideas are understood should the formal EXP-001 research question, hypothesis, variables, and evaluation protocol be written.
 
-Each agent is a stochastic memory-one policy:
-
-`theta = (p_CC, p_CD, p_DC, p_DD)`
-
-where each component is the probability of cooperating conditional on the previous round’s pair of actions.
-
-The policy space is therefore `[0, 1]^4`.
-
-### Provisional evolutionary loop
-
-1. initialise a population of policies;
-2. evaluate policies through repeated pairwise games;
-3. compute fitness;
-4. select parents;
-5. mutate policy parameters, initially considering Gaussian mutation;
-6. create the next generation;
-7. repeat;
-8. analyse population-level dynamics across multiple random seeds.
-
-### Provisional experimental scale
-
-The founding discussion suggested values such as:
-
-- population size `N ≈ 100`;
-- game length `T ≈ 200` rounds;
-- generations `G ≈ 500`;
-- at least 20 random seeds;
-- round-robin evaluation initially;
-- tournament or softmax selection as candidate mechanisms.
-
-These are **not accepted constants**. They must be justified during experiment design rather than copied mechanically.
-
-### Metrics proposed for study
-
-- mean fitness by generation;
-- maximum fitness;
-- cooperation rate;
-- policy-parameter distributions;
-- strategic/population diversity;
-- pairwise payoff/performance matrix;
-- sensitivity to mutation and selection pressure.
-
-Later extensions may include action noise, injected fixed strategies, changing population structure, learning within lifetime, and non-transitive strategy analysis.
-
-## 6. Important decisions already made
-
-See `docs/02_decisions/DECISION_LOG.md`. The current founding decisions are:
-
-- the repository is the source of truth;
-- the project prioritises durable understanding over generated implementation speed;
-- LLM orchestration is not the starting point;
-- evolutionary Iterated Prisoner’s Dilemma is the first planned experiment;
-- experiments will be treated scientifically rather than as visually interesting demos;
-- no implementation starts until the charter and learning contract are ratified.
-
-## 7. What has NOT been done
-
-As of this state:
+## 6. What has NOT been done
 
 - no Python package structure has been created;
-- no environment interface has been implemented;
-- no agent class has been implemented;
-- no evolutionary code exists;
+- no environment or agent classes exist;
+- no evolutionary algorithm has been implemented;
+- no experimental hyperparameters are ratified;
 - no numerical experiment has been run;
-- no high-level RL library has been selected;
-- no LLM API/framework has been selected;
-- no experimental hyperparameters have been accepted as final.
+- no RL or LLM framework has been selected.
 
 This is intentional.
 
-## 8. Immediate next session
+## 7. Resume instruction
 
-The next substantive session should **not start coding**.
-
-It should review `PROJECT_CHARTER.md` with Jonathan. The assistant should help him answer, in his own words:
-
-1. What does he ultimately want to become capable of doing?
-2. What exactly does “understanding AI deeply” mean to him?
-3. Which parts of the provisional mission feel wrong or incomplete?
-4. What would make this project a success after approximately 6 months?
-5. What would make it a success after approximately 2 years?
-6. Which things must the project never drift into?
-
-Then review `LEARNING_CONTRACT.md` and amend it if needed.
-
-Only when Jonathan explicitly ratifies both documents should:
-
-- their status be changed to `RATIFIED`;
-- DEC-006 be updated/closed accordingly;
-- Stage 0A be considered complete;
-- formal design of EXP-001 begin.
-
-## 9. Resume instruction for a future assistant
-
-Do not infer that EXP-001 should be implemented merely because its provisional specification appears above. The implementation gate is still closed.
-
-Resume by helping Jonathan ratify the project framework unless a later repository update supersedes this state.
+A future assistant should resume with the conceptual/formal design of EXP-001, beginning with the game-theoretic foundations above. Do not jump to code because the charter gate has closed. The learning contract still requires understanding before implementation.
