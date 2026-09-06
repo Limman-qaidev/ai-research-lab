@@ -1,9 +1,9 @@
 # LEARNING_CONTRACT.md
 
 **Version:** 0.2  
-**Status:** PROVISIONAL â€” review together with `PROJECT_CHARTER.md` before EXP-001 implementation  
+**Status:** RATIFIED  
 **Created:** 2026-09-06  
-**Last refined:** 2026-09-06
+**Ratified:** 2026-09-06
 
 ## 1. Purpose
 
@@ -241,3 +241,7 @@ Any exception should preserve the principle that the project increases Jonathanâ
 ## 15. Session closeout
 
 After a material session, do not rely on the chat remaining available. Follow `docs/99_handoff/SESSION_CLOSEOUT.md` and update the repository state needed for exact continuation.
+
+## 16. Ratification
+
+This learning contract was explicitly ratified by Jonathan on 2026-09-06. Future changes are allowed, but changes that materially alter the balance between independent learning and AI assistance should be documented deliberately.
