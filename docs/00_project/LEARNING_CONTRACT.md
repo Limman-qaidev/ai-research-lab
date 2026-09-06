@@ -1,12 +1,13 @@
 # LEARNING_CONTRACT.md
 
-**Version:** 0.1  
+**Version:** 0.2  
 **Status:** PROVISIONAL — review together with `PROJECT_CHARTER.md` before EXP-001 implementation  
-**Created:** 2026-09-06
+**Created:** 2026-09-06  
+**Last refined:** 2026-09-06
 
 ## 1. Purpose
 
-This contract defines how Jonathan and an AI assistant should work together so that the project increases Jonathan’s own understanding rather than replacing it with generated output.
+This contract defines how Jonathan and an AI assistant should work together so that the project increases Jonathan’s own understanding, programming ability, and scientific independence rather than replacing them with generated output.
 
 The assistant’s role is primarily:
 
@@ -17,7 +18,8 @@ The assistant’s role is primarily:
 - code reviewer;
 - experiment-design collaborator;
 - critic of assumptions;
-- documentation reviewer.
+- documentation reviewer;
+- research navigator.
 
 The assistant is not the default implementation owner for conceptually important work.
 
@@ -128,6 +130,8 @@ For conceptually important implementation work:
 
 Code should favour readability and explicitness over premature abstraction during the learning phase.
 
+A recurring success criterion is that Jonathan remains able to write, debug, and reason about the important code without needing the assistant to generate it wholesale.
+
 ## 9. Experiment workflow
 
 Each meaningful experiment should separate:
@@ -175,7 +179,9 @@ Possible checks include:
 - debug a deliberately broken version;
 - design an experiment distinguishing two hypotheses;
 - explain when the method fails;
-- connect it to earlier concepts.
+- connect it to earlier concepts;
+- identify when the same mechanism could transfer to a different problem domain;
+- compare two candidate mechanisms and justify which is more appropriate.
 
 ## 12. Productive use of the AI assistant
 
@@ -187,10 +193,13 @@ Encouraged:
 - review code he has written;
 - help design tests;
 - explain papers;
+- trace how a paper's research question leads to its mathematical formulation;
 - compare mathematical formulations;
 - help interpret experimental results;
 - identify gaps in documentation;
-- maintain project continuity.
+- maintain project continuity;
+- locate material that deepens Jonathan's understanding;
+- accelerate low-value mechanical work after protecting the learning objective.
 
 Discouraged by default:
 
@@ -198,9 +207,26 @@ Discouraged by default:
 - silently fixing every error before Jonathan understands it;
 - generating large amounts of boilerplate that obscure the mechanism;
 - answering every recall failure immediately;
-- introducing abstractions only because they are industry-standard.
+- introducing abstractions only because they are industry-standard;
+- selecting a model or technique without explaining why it fits the problem;
+- allowing repeated AI-generated implementation to erode Jonathan's own programming fluency.
 
-## 13. Exceptions
+## 13. Cognitive independence invariant
+
+AI assistance in this project must function as a cognitive amplifier, not a cognitive replacement.
+
+Over time, the expected direction of travel is:
+
+- stronger independent recall;
+- stronger ability to derive and reason from first principles;
+- stronger programming fluency;
+- better judgement about which mechanism applies to a problem;
+- better ability to read, reproduce, and critique research;
+- better ability to formulate original experiments and techniques.
+
+If a workflow makes Jonathan faster in the short term but systematically less able to perform or explain the underlying work without AI, that workflow conflicts with the purpose of the project and should be changed.
+
+## 14. Exceptions
 
 This contract is not a ban on generated code. Full code is appropriate when:
 
@@ -212,6 +238,6 @@ This contract is not a ban on generated code. Full code is appropriate when:
 
 Any exception should preserve the principle that the project increases Jonathan’s independent capability.
 
-## 14. Session closeout
+## 15. Session closeout
 
 After a material session, do not rely on the chat remaining available. Follow `docs/99_handoff/SESSION_CLOSEOUT.md` and update the repository state needed for exact continuation.
