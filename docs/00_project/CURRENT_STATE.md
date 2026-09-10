@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-09-10  
 **Project phase:** Stage 0E — EXP-001 evolutionary run design and observables  
-**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS IMPLEMENTED; FITNESS-PROPORTIONAL SELECTION IMPLEMENTED; MUTATION VALIDATED; SINGLE-GENERATION STEP IMPLEMENTED  
+**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS, SELECTION, MUTATION AND SINGLE-GENERATION STEP IMPLEMENTED; OBSERVABILITY INSTRUMENTATION IN REVIEW  
 **Previous gate:** COMPLETED — evaluation, selection and mutation are composed into one next-generation transformation  
-**Next task:** define generation-level observables and reproducible random initialization before looping over generations
+**Next task:** correct observable denominators and outcome accounting, then finish reproducible random initialization before the first multi-generation run
 
 ## 1. Stable project purpose
 
@@ -31,7 +31,7 @@ Socratic questioning should be used only where it tests genuinely important conc
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-The game engine and the elementary evolutionary operators now exist. The project has reached the point where experimental observables and reproducibility must be defined before any long evolutionary run is trusted.
+The game engine and elementary evolutionary operators exist. The project is instrumenting the system so evolutionary trajectories can answer the research question rather than merely produce final fitness numbers.
 
 ## 4. Validated minimal simulator
 
@@ -46,28 +46,15 @@ For a 100-round horizon, deterministic reference matchups were confirmed exactly
 - TFT vs TFT -> `(300, 300)`;
 - TFT vs AllC -> `(300, 300)`.
 
-## 5. Population fitness
+## 5. Population fitness and evolutionary operators
 
 Population evaluation uses one match for every unordered pair. For population size `N`:
 
 `F_i = total_payoff_i / ((N-1) * n_rounds)`.
 
-This keeps fitness frequency-dependent on the current population composition.
-
-Analytical targets used during development:
-
-- `[AllC, AllC, AllD]` -> `(1.5, 1.5, 5.0)`;
-- `[TFT, TFT, AllD]` -> `(1.995, 1.995, 1.04)`.
-
-## 6. Selection
-
 Fitness-proportional parent sampling is implemented:
 
 `q_i = F_i / sum_j(F_j)`.
-
-Exactly `N` parents are sampled with replacement from the current population.
-
-## 7. Mutation
 
 Gaussian local mutation is implemented:
 
@@ -75,67 +62,94 @@ Gaussian local mutation is implemented:
 
 `pi_child = clip(pi_parent + epsilon, 0, 1)`.
 
-Every child is a new `Policy`, the parent remains unchanged, and child parameters are constrained to `[0,1]`.
+Each child is a new `Policy`, preserving the previous generation. The provisional experiment mutation scale remains `sigma=0.05`.
 
-The provisional experiment scale remains `sigma=0.05`; larger values used during coding were implementation checks, not ratified experimental choices.
+Jonathan has also implemented the complete one-generation transformation:
 
-## 8. Single-generation transformation — implemented
+`P_t -> evaluate -> fitness -> select parents -> mutate -> P_(t+1)`.
 
-Jonathan implemented:
+## 6. Observable instrumentation — current implementation
 
-`next_generation(game, population, sigma)`
+Jonathan added counters during population evaluation for:
 
-with the composition:
+- total `C` actions;
+- total `D` actions;
+- observed joint outcomes `CC`, `CD`, `DC`, `DD`;
+- mean population fitness.
 
-1. evaluate the current population;
-2. sample `N` parents proportionally to fitness;
-3. create one independently mutated child for each selected parent;
-4. return the resulting `N`-policy population.
+He also added `np.random.seed(42)` as a first reproducibility mechanism.
 
-This is the first complete evolutionary transition:
+### Important denominator correction
 
-`P_t -> fitness -> selection -> mutation -> P_(t+1)`.
+The current rate denominators use `num_rounds * N`, which is not the number of observations in a round-robin population when `N > 2`.
 
-### Testing nuance
+Every player plays `N-1` matches of `n` rounds, so the total number of **individual actions** observed in a generation evaluation is:
 
-Calling `select_parents(...)` outside `next_generation(...)` and then calling `next_generation(...)` performs two independent parent selections. Therefore an externally printed `parents[0]` is not necessarily the parent of `next_generation(...)[0]`. To test exact parent-child identity or `sigma=0`, selection and mutation should be observed within the same transition or tested separately.
+`n_actions = n_rounds * N * (N - 1)`.
 
-## 9. Current scientific gate — observables before long runs
+Therefore:
 
-Do **not** immediately run hundreds of generations and inspect only final fitness.
+- `cooperation_rate = C_count / n_actions`;
+- `defection_rate = D_count / n_actions`;
+- invariant: `cooperation_rate + defection_rate = 1`.
 
-The primary EXP-001 question concerns emergence and persistence of reciprocal cooperation. Fitness alone cannot establish that cooperation emerged: exploitative populations can have high individual fitness in some compositions, and aggregate fitness does not identify the behavioural mechanism.
+The total number of **joint round outcomes** (`CC/CD/DC/DD` as one outcome per played round) is:
 
-Before the first multi-generation run, define and record at least:
+`n_joint_rounds = n_rounds * N * (N - 1) / 2`.
 
-- mean population fitness per generation;
-- population cooperation rate per generation (fraction of played actions that are `C`);
-- distribution or mean of each policy parameter `(p0, p_CC, p_CD, p_DC, p_DD)`;
-- population diversity / dispersion in policy space;
-- optional clipping frequency during mutation.
+Any joint-outcome frequencies must use this denominator, and their rates must sum to 1.
 
-The first implementation may start with a minimal subset, but **cooperation rate is mandatory** if the experiment is to answer its stated research question.
+For the deterministic population `[TFT, TFT, AllD]` with `N=3`, `n_rounds=100`:
 
-## 10. Reproducibility gate
+- there are 3 pairwise matches;
+- 300 joint rounds;
+- 600 individual actions;
+- action counts are `C=202`, `D=398`;
+- cooperation rate is `202/600 = 0.336666...`;
+- defection rate is `398/600 = 0.663333...`.
 
-Before scientific runs:
+These provide an analytical instrumentation test.
 
-- initialize a genuinely random population in `[0,1]^5` rather than seeding known strategies;
-- control randomness with an explicit seed / NumPy random generator so complete runs can be reproduced;
-- record the chosen population size, number of rounds, number of generations, sigma, and seed;
-- later repeat across multiple seeds before making claims about emergence.
+### `CD` / `DC` ordering caveat
 
-## 11. Still outstanding
+The current code increments joint state using `state = action_a + action_b` where player A is determined by population index order. Consequently separate aggregate `CD_rate` and `DC_rate` are not permutation-invariant population observables: reordering identical policies in the population can swap these counts.
 
-- validate single-generation invariants explicitly if desired (size, bounds, parent immutability, `sigma=0` copy behaviour);
-- instrument game/population evaluation to measure cooperation rate without changing the strategic rules;
-- define minimal generation-history structure;
-- initialize random populations reproducibly;
-- choose provisional population size and generation count for a first exploratory run;
-- loop over generations and save metrics;
-- repeat across seeds before drawing scientific conclusions;
-- align minor type annotations and reduce unnecessary hidden `Game` state later.
+For population-level reporting, prefer either:
 
-## 12. Resume instruction
+1. symmetric joint categories `CC`, mixed (`CD or DC`), `DD`; or
+2. player-relative state counting for both players, if separate `CD` and `DC` frequencies are scientifically needed.
 
-Resume at **experiment observables and reproducibility**, not at game-theory foundations or operator implementation. The single-generation evolutionary transformation already exists. Before running long trajectories, make cooperation observable and create reproducible random initialization. Then perform a small exploratory multi-generation run and analyse the trajectory before scaling up.
+Do not interpret A-oriented `CD` versus `DC` counts as an intrinsic population property.
+
+## 7. Policy-space observables still to add
+
+Before the first evolutionary run, record at least the mean policy vector per generation:
+
+`mean_pi_t = (mean p0, mean p_CC, mean p_CD, mean p_DC, mean p_DD)`.
+
+A dispersion/diversity measure should also be added soon so a stable mean does not hide a heterogeneous population.
+
+Fitness alone cannot establish emergence of reciprocal cooperation.
+
+## 8. Reproducibility status
+
+`np.random.seed(42)` makes a full script reproducible when executed from a fresh process with exactly the same random-call order. This is adequate for immediate implementation checks.
+
+Before scientific multi-seed runs, prefer an explicit NumPy random generator owned by the experiment (for example a generator constructed from a recorded seed) and route action sampling, parent selection, mutation and random initialization through it. This reduces hidden dependence on global RNG state and makes independent runs easier to control.
+
+## 9. Next gate
+
+Before looping over generations:
+
+1. fix action-rate and joint-outcome denominators;
+2. validate the `[TFT,TFT,AllD]` instrumentation analytically;
+3. choose permutation-invariant joint outcome reporting or player-relative state counting;
+4. add the mean policy vector;
+5. initialize a genuinely random population in `[0,1]^5`;
+6. move from the global seed to explicit run-level RNG before formal multi-seed experiments.
+
+After these are in place, run a small exploratory evolutionary trajectory, record generation history, and inspect mechanisms before scaling.
+
+## 10. Resume instruction
+
+Resume at **observable validation and reproducibility**. Do not revisit Prisoner's Dilemma foundations or the already implemented evolutionary operators unless a regression appears. The immediate task is to make the recorded rates mathematically correct and permutation-safe, then create a reproducible random initial population and perform the first small multi-generation exploratory run.
