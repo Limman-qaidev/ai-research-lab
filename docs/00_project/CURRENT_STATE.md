@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-09-10  
 **Project phase:** Stage 0D — EXP-001 population evaluation and evolutionary dynamics  
-**Implementation status:** MINIMAL SIMULATOR VALIDATED  
+**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS IMPLEMENTED, VALIDATION PENDING  
 **Previous gate:** COMPLETED — deterministic repeated-game baseline tests passed  
-**Next task:** design and implement population-level fitness evaluation before selection and mutation
+**Next task:** validate the round-robin population fitness layer, then implement fitness-proportional reproduction
 
 ## 1. Stable project purpose
 
@@ -31,7 +31,7 @@ Socratic questioning should be used where it tests genuinely important concepts,
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-Core conceptual foundations and the minimal repeated-game simulator are now complete enough to begin population-level work.
+Core conceptual foundations and the minimal repeated-game simulator are complete. Population-level evaluation is now implemented locally and awaiting analytical validation.
 
 ## 4. Validated minimal simulator
 
@@ -43,7 +43,8 @@ Jonathan implemented a simulator containing:
 - a Prisoner's Dilemma payoff lookup;
 - player-relative previous states (`state_a = action_a + action_b`, `state_b = action_b + action_a`);
 - repeated play for a fixed number of rounds;
-- cumulative game scores.
+- cumulative game scores;
+- reset of match state at the start of every `play_game` call.
 
 For a 100-round horizon, the deterministic reference matchups were confirmed exactly:
 
@@ -56,52 +57,53 @@ For a 100-round horizon, the deterministic reference matchups were confirmed exa
 
 These results validate the first-round behaviour, payoff mapping, repeated-state transition logic, and player-relative `CD/DC` ordering for the deterministic baselines.
 
-## 5. Current gate — population fitness
+## 5. Population fitness implementation
 
-The next milestone is **not yet full evolution**. First implement population-level evaluation correctly.
+Jonathan has now implemented the v1 round-robin evaluator using a Python list of `Policy` objects.
 
-Target mechanism:
+Current logic:
 
-1. create a population of policies;
-2. evaluate every unordered pair once (round-robin, no self-play for v1);
-3. accumulate each individual's payoff across opponents;
-4. convert accumulated payoff to mean payoff per round/opponent;
-5. return a fitness vector aligned with the population indices.
+1. let `N = len(policies)`;
+2. iterate unordered pairs with `for i in range(N-1)` and `for j in range(i+1, N)`;
+3. run one repeated game for each pair;
+4. add the two resulting scores to the corresponding population indices;
+5. compute fitness as `scores / (num_rounds * (N - 1))`.
 
-For population size `N`, the number of pairwise games should be:
-
-`N(N-1)/2`.
-
-The v1 candidate fitness definition is:
+This matches the intended v1 definition:
 
 `F_i = total_payoff_i / ((N-1) * n_rounds)`.
 
-Important invariant: fitness is frequency-dependent because every candidate is evaluated against the current population composition.
+The implementation still reads each pairwise result from `Game.total_score` after `play_game`; returning the pairwise score directly from `play_game` would be a cleaner contract, but this is not a conceptual blocker for the current milestone.
 
-Do not implement reproduction, mutation, generations, or plotting until this population fitness layer is independently checked.
+Minor type annotations also remain to be cleaned up later (`Policy` construction currently accepts Python lists in examples although annotated as `np.ndarray`; payoff/score return annotations do not exactly match NumPy return types).
 
-## 6. Validation ideas for population evaluation
+## 6. Immediate validation gate
 
-Before selection/mutation, use tiny populations with analytically predictable outcomes, for example:
+Before selection, confirm the population evaluator against analytically known cases for `n = 100`:
 
-- population `[AllC, AllC]`;
-- population `[AllC, AllD]`;
-- population `[AllC, AllC, AllD]`;
-- population `[TFT, TFT, AllD]`.
+- `[AllC, AllC, AllD]` -> fitness `(1.5, 1.5, 5.0)`;
+- `[TFT, TFT, AllD]` -> fitness `(1.995, 1.995, 1.04)`.
 
-Manually derive expected aggregate and mean fitness before running the code. This will test bookkeeping independently of the already-validated two-policy game engine.
+Once both pass, population fitness is considered validated and the next mechanism is fitness-proportional reproduction.
 
-## 7. Still outstanding
+## 7. Next mechanism after validation — selection
 
-- confirm match state is reset/local for every pairwise game when a `Game` object is reused;
-- align type annotations with actual return types;
-- population representation is not yet implemented;
-- round-robin evaluator is not yet implemented;
-- selection operator is not yet implemented;
-- mutation operator is not yet implemented;
-- no evolutionary generations have been run;
-- no experimental results exist yet.
+The first selection operator will be fitness-proportional reproduction:
 
-## 8. Resume instruction
+`P(parent = i) = F_i / sum_j(F_j)`.
 
-Resume at **population-level fitness evaluation**. Do not revisit basic Prisoner's Dilemma theory or the deterministic simulator unless a regression appears. Jonathan should implement the core population evaluator himself; the assistant should help derive invariants, review design/code, and only then move to selection and mutation.
+Parents will be sampled with replacement to form a new population of the same size. Mutation is a separate subsequent step; do not combine selection and mutation until parent sampling is independently understood and tested.
+
+## 8. Still outstanding
+
+- confirm the two analytical population-fitness cases above;
+- implement selection / parent sampling;
+- implement mutation;
+- combine evaluation, selection, and mutation into generations;
+- add reproducible random-number handling before stochastic experiments;
+- align type annotations and improve `play_game` return contract;
+- no evolutionary experiment has been run yet.
+
+## 9. Resume instruction
+
+Resume by validating the current population evaluator against the two analytical populations. If both pass, do not revisit the simulator or Prisoner's Dilemma foundations; move directly to fitness-proportional selection, then mutation, then generation dynamics.
