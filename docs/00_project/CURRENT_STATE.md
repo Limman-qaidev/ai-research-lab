@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-09-10  
 **Project phase:** Stage 0F — EXP-001 first evolutionary trajectory  
-**Implementation status:** CORE SIMULATOR, POPULATION FITNESS, SELECTION, MUTATION, SINGLE-GENERATION STEP, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, RANDOM INITIALIZATION AND EXPLICIT NUMPY GENERATOR IMPLEMENTED  
-**Previous gate:** COMPLETED — random `Population(N)` initialization and `Population -> Population` generation contract implemented  
-**Next task:** implement generation history with exactly one stochastic evaluation per generation, then run the first small exploratory trajectory
+**Implementation status:** CORE SIMULATOR, POPULATION FITNESS, SELECTION, MUTATION, SINGLE-GENERATION STEP, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, RANDOM INITIALIZATION AND EXPLICIT NUMPY GENERATOR IMPLEMENTED; ONE-EVALUATION GENERATION CONTRACT FIXED; HISTORY RECORDING STILL IN REVIEW  
+**Previous gate:** COMPLETED — `Population.next_generation(fitness, sigma)` now consumes already-computed fitness and no longer re-evaluates the population  
+**Next task:** replace the broken history decorators with an explicit per-generation history list, then run the first small exploratory trajectory
 
 ## 1. Stable project purpose
 
@@ -31,9 +31,9 @@ Use Socratic questions only for important conceptual distinctions; avoid endless
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-The repeated-game engine and elementary evolutionary system are implemented far enough to perform a first exploratory multi-generation run once history recording is correct.
+The simulator and elementary evolutionary system are implemented far enough to perform a first exploratory multi-generation run once history recording is made explicit and correct.
 
-## 4. Validated core simulator
+## 4. Validated core simulator and evolutionary operators
 
 A stochastic memory-one `Policy` is represented by `(p0, p_CC, p_CD, p_DC, p_DD)` and uses stochastic action sampling with player-relative previous states.
 
@@ -46,7 +46,7 @@ For a 100-round horizon, deterministic reference matchups were confirmed exactly
 - TFT vs TFT -> `(300, 300)`;
 - TFT vs AllC -> `(300, 300)`.
 
-Population fitness is one round-robin match per unordered pair:
+Population fitness uses one round-robin match per unordered pair:
 
 `F_i = total_payoff_i / ((N-1) * n_rounds)`.
 
@@ -60,87 +60,86 @@ The provisional mutation scale remains `sigma = 0.05`.
 
 ## 5. Behavioural and policy-space observability
 
-Population evaluation records:
+Population evaluation records mean fitness, cooperation/defection rates, and symmetric `CC`, `mixed`, `DD` outcome rates.
 
-- mean fitness;
-- cooperation and defection rates;
-- symmetric joint-outcome rates `CC`, `mixed = CD + DC`, and `DD`.
+The `Population` abstraction also records column-wise mean and standard deviation of its `N x 5` policy matrix.
 
-For `[TFT, TFT, AllD]`, `N=3`, `n_rounds=100`, observed values matched the analytical result exactly:
+The deterministic `[TFT, TFT, AllD]` instrumentation check matched the analytical values exactly, including cooperation `0.336666...`, `CC = 1/3`, `mixed = 2/300`, and `DD = 0.66`.
 
-- mean fitness `1.6766666666666667`;
-- cooperation `0.33666666666666667`;
-- defection `0.6633333333333333`;
-- `CC = 0.3333333333333333`;
-- `mixed = 0.006666666666666667`;
-- `DD = 0.66`.
+## 6. Random initialization and RNG
 
-The `Population` abstraction also builds an `N x 5` ndarray and reports column-wise mean and standard deviation of policy parameters.
+`Population(N=...)` creates `N` independent random policies with five parameters sampled uniformly from `[0,1]`.
 
-For `[TFT, TFT, AllD]`:
+All current stochastic mechanisms use a NumPy `Generator` created with `np.random.default_rng(42)` for initialization, action sampling, selection, and mutation.
 
-`mean_pi = (2/3, 2/3, 0, 2/3, 0)`
+The generator is still module-global; this is acceptable for the first exploratory run. Later multi-seed experiments should make RNG ownership explicit per run.
 
-`std_pi ≈ (0.4714, 0.4714, 0, 0.4714, 0)`.
+## 7. One-evaluation generation contract — fixed
 
-## 6. Random initialization and RNG — implemented
+Jonathan changed the transition interface to:
 
-`Population(N=...)` creates `N` independent policies, each with five parameters sampled uniformly from `[0,1]`.
+`Population.next_generation(fitness, sigma)`
 
-The policy matrix uses `np.array(...)` and has intended shape `(N, 5)`.
+so the method no longer calls `evaluate_population` internally.
 
-Current stochastic mechanisms use a NumPy `Generator` created with:
-
-`rng = np.random.default_rng(42)`.
-
-The generator is used for policy initialization, policy action sampling, parent selection, and mutation. This is sufficient for the first exploratory run in a fresh process. A later refinement should make the RNG an explicit run-owned dependency rather than a module-global object, especially for independent multi-seed experiments.
-
-## 7. Population generation contract
-
-`Population.next_generation(game, sigma)` currently performs:
-
-`evaluate self.policies -> select parents -> mutate -> return new Population`.
-
-This is conceptually correct for one isolated generation, but history recording must not trigger another evaluation of the same population.
-
-## 8. Critical generation-history invariant
-
-Exactly **one stochastic evaluation per generation** must be performed and reused for both:
-
-- the statistics recorded in history;
-- the fitness used for parent selection.
-
-The attempted use of a custom `@cache` decorator on `Game.evaluate_population` is not appropriate and, as written, breaks the method: the decorator returns `(add, get)`, so the decorated method is replaced by a tuple rather than remaining callable.
-
-Do not solve this with memoization. The clean design is explicit data flow:
+The intended generation flow is now explicit:
 
 `fitness_t = population.evaluate(game)`
 
-then use the same `fitness_t` to:
+then use the same `fitness_t` both to record the evaluated generation and to select parents/mutate into `P_(t+1)`.
 
-1. record `game.statistics` plus the population mean/std;
-2. create the next generation via selection and mutation without re-evaluating.
+This satisfies the key invariant:
 
-A clean interface is therefore for the generation-transition method to accept the already-computed `fitness`, or to split reproduction from evaluation entirely. Avoid hidden cached stochastic results because they make invalidation and population identity harder to reason about.
+`fitness recorded in history == fitness used for selection`.
 
-## 9. Immediate first-run gate
+Exactly one stochastic evaluation should occur per generation.
+
+## 8. History decorator attempt — not valid
+
+Jonathan next attempted a generic:
+
+`@history`
+
+decorator on both `Game._get_stats` and `Population.get_stats_population`.
+
+As implemented, the decorator returns an `add` function that merely appends the bound object passed at call time to a private closure list. It therefore replaces the original method body rather than wrapping and executing it.
+
+Consequences:
+
+- `Game._get_stats()` no longer executes its original statistics-collection body;
+- `Population.get_stats_population()` no longer computes/returns `(mean, std)` and instead returns `None`;
+- the private closure history is inaccessible to the experiment code;
+- the attempted `_get_stats` body is itself invalid if restored unchanged because `self.statistics` is a dict with string keys, not positional indices, and `list.append` accepts one object rather than several positional values.
+
+Do not use a decorator for history in v1. History should be explicit experiment state.
+
+## 9. Recommended minimal history design
+
+Create one plain `history = []` owned by the experiment loop.
+
+For each generation `t`:
+
+1. evaluate the current population exactly once and obtain `fitness_t`;
+2. read `game.statistics` from that evaluation;
+3. compute `mean_pi_t, std_pi_t = population.get_stats_population()`;
+4. create one record (preferably a dict) containing `generation`, behavioural statistics, `mean_policy`, and `std_policy`;
+5. append that single record to `history`;
+6. set `population = population.next_generation(fitness_t, sigma)`.
+
+Do not call `select_parents(fitness_t)` separately for inspection before `next_generation`; that extra random draw consumes the run RNG and changes the subsequent evolutionary trajectory.
+
+## 10. Immediate first-run gate
 
 Before plotting or scaling:
 
-1. remove the broken cache decorator/helper;
-2. ensure the random population checks are real assertions (`len == N`, shape `(N,5)`, bounds `[0,1]`);
-3. change the generation transition so it consumes already-computed fitness and does not call `evaluate_population` internally;
-4. save one history record per generation containing generation index, mean fitness, cooperation rate, `CC/mixed/DD`, mean policy vector, and policy std vector;
-5. run a small exploratory configuration such as `N=30`, `n_rounds=100`, `generations=50`, `sigma=0.05`, seed `42`;
-6. inspect the trajectory before any multi-seed scientific claim.
-
-## 10. Small cleanup items
-
-- `np.isclose(...)` used as a bare expression does not test anything; wrap it in `assert` when intended as validation.
-- `len(population.policies) == 100` and `population._get_matrix().shape == (100,5)` are also discarded booleans unless wrapped in `assert`.
-- `Policy.__init__` is annotated with `np.ndarray` but some examples pass Python lists; align the contract later.
-- `Game.evaluate_population` can use the value returned by `play_game` rather than reading `self.total_score`; this is cleanup, not a scientific blocker.
+1. remove the `history` decorator/helper and `@history` annotations;
+2. restore `Population.get_stats_population()` as an ordinary method returning `(average, std)`;
+3. remove `Game._get_stats()` unless there is a clear non-decorator reason to keep it;
+4. make the random population checks real assertions, including bounds `[0,1]`;
+5. build an explicit `history = []` in the run loop with one dict per generation;
+6. run a small exploratory configuration such as `N=30`, `n_rounds=100`, `generations=50`, `sigma=0.05`, seed `42`;
+7. inspect the trajectory before any multi-seed scientific claim.
 
 ## 11. Resume instruction
 
-Resume at **generation history and first exploratory run**. Remove the attempted cache. Evaluate each population exactly once, reuse that fitness for history and reproduction, then run the first small evolutionary trajectory. Do not revisit Prisoner's Dilemma foundations or already validated operators unless a regression appears.
+Resume at **explicit generation history and first exploratory run**. The double-evaluation issue is fixed. Do not introduce caching or decorators for history. Evaluate each population exactly once, append one explicit history record, reuse the same fitness for reproduction, and then run the first small evolutionary trajectory.
