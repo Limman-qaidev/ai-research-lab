@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-09-10  
 **Project phase:** Stage 0D — EXP-001 population evaluation and evolutionary dynamics  
-**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS IMPLEMENTED; FITNESS-PROPORTIONAL SELECTION IMPLEMENTED  
-**Previous gate:** COMPLETED — deterministic repeated-game baseline tests passed  
-**Next task:** implement mutation as creation of new offspring policies, then combine evaluation-selection-mutation into one generation
+**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS IMPLEMENTED; FITNESS-PROPORTIONAL SELECTION IMPLEMENTED; MUTATION IMPLEMENTED AND VALIDATED  
+**Previous gate:** COMPLETED — mutation creates bounded offspring without altering parents  
+**Next task:** combine evaluation, selection, and mutation into one complete generation step, then validate generation invariants before looping over generations
 
 ## 1. Stable project purpose
 
@@ -31,7 +31,7 @@ Socratic questioning should be used where it tests genuinely important concepts,
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-Core conceptual foundations and the minimal repeated-game simulator are complete. The project is now implementing the evolutionary loop in isolated layers.
+Core conceptual foundations and the minimal repeated-game simulator are complete. The project is now assembling the evolutionary loop from independently understood pieces.
 
 ## 4. Validated minimal simulator
 
@@ -67,12 +67,12 @@ For population size `N`:
 
 `F_i = total_payoff_i / ((N-1) * n_rounds)`.
 
-Analytical validation targets remain:
+Analytical validation targets are:
 
 - `[AllC, AllC, AllD]` -> `(1.5, 1.5, 5.0)`;
 - `[TFT, TFT, AllD]` -> `(1.995, 1.995, 1.04)`.
 
-The implementation now makes `play_game` return the pairwise total, although `evaluate_population` still reads `self.total_score`; using the returned value directly is a later cleanup, not a conceptual blocker.
+`play_game` now returns the pairwise total, although `evaluate_population` still reads `self.total_score`; using the returned value directly is a later cleanup, not a conceptual blocker.
 
 ## 6. Fitness-proportional selection
 
@@ -82,62 +82,68 @@ Jonathan implemented parent sampling with replacement using:
 
 and NumPy weighted sampling to select `N` parents from the current population.
 
-For the analytical fitness vector `(1.995, 1.995, 1.04)`, the corresponding reproduction probabilities are approximately:
-
-`(0.3966, 0.3966, 0.2068)`.
-
-This selection operator intentionally permits:
+The selection operator permits:
 
 - the same parent to be chosen multiple times;
 - lower-fitness parents to reproduce occasionally;
 - some parents to leave no descendants in a generation.
 
-### Important object-identity invariant for the next step
+## 7. Mutation — implemented and validated
 
-The selected parents are references to existing `Policy` objects. Mutation must **not** alter selected parent objects or their `probabilities` arrays in place.
+Jonathan implemented local Gaussian mutation as:
 
-Each offspring must be a newly constructed `Policy` whose parameters are derived from the selected parent's parameters. This prevents:
+`epsilon_k ~ Normal(0, sigma^2)`
 
-- mutating the previous generation retroactively;
-- two offspring selected from the same parent unintentionally sharing a mutable parameter array;
-- one child's mutation modifying a sibling or parent.
+`pi_child = clip(pi_parent + epsilon, 0, 1)`.
 
-## 7. Next mechanism — mutation
+The implementation:
 
-Implement mutation separately before constructing full generations.
+- perturbs all five policy parameters;
+- creates a new `Policy` for the child;
+- leaves the selected parent unchanged;
+- clips all child probabilities to `[0,1]`.
 
-Candidate v1 mechanism:
+A direct test using TFT-like parent `(1,1,0,1,0)` and `sigma=0.1` produced an offspring such as:
 
-`pi_child = clip(pi_parent + epsilon, 0, 1)`
+`(0.99917545, 1.0, 0.0770555, 0.91572224, 0.0)`
 
-with independent parameter perturbations
+while the parent remained exactly `(1,1,0,1,0)`. This confirms both object-identity safety and boundary clipping behaviour.
 
-`epsilon_k ~ Normal(0, sigma^2)`.
+The experimental v1 mutation scale remains provisionally `sigma=0.05`; `sigma=0.1` was used only as an implementation check. Mutation-scale sensitivity should be studied later rather than assumed.
 
-Initial design value remains `sigma = 0.05`, subject to later sensitivity analysis.
+## 8. Next mechanism — one complete generation
 
-Mutation should:
+Do not add plotting or long multi-generation runs yet.
 
-- operate on all five policy parameters;
-- return a **new** `Policy`;
-- leave the parent unchanged;
-- keep every parameter in `[0,1]`;
-- use clipping for the first implementation;
-- later expose/measure clipping frequency because clipping may bias the boundaries.
+Construct one generation as the composition:
 
-Before population evolution, test mutation invariants independently.
+1. `fitness = evaluate_population(population)`;
+2. `parents = select_parents(population, fitness)`;
+3. for each selected parent, create one new mutated `Policy`;
+4. collect exactly `N` offspring as the next population.
 
-## 8. Still outstanding
+Generation-level invariants to validate before looping:
+
+- population size remains exactly `N`;
+- every member of the next generation is a newly created `Policy`;
+- every parameter remains in `[0,1]`;
+- the original population is unchanged after reproduction/mutation;
+- selection probabilities sum to 1;
+- with `sigma=0`, offspring genotypes are exact copies of selected parents (but still distinct objects).
+
+Only after this single-generation transformation is validated should the experiment introduce repeated generations and record population-level metrics.
+
+## 9. Still outstanding
 
 - explicitly confirm the analytical population-fitness outputs if not already recorded;
-- implement and validate mutation;
-- combine evaluation, selection, and mutation into generations;
+- combine evaluation, selection, and mutation into a validated generation step;
 - initialize a genuinely random population in `[0,1]^5`;
 - add reproducible random-number handling before scientific runs;
 - define and record generation-level metrics;
-- align minor type annotations and remove unnecessary hidden state later;
+- loop over multiple generations;
+- align minor type annotations and reduce unnecessary hidden `Game` state later;
 - no evolutionary experiment has been run yet.
 
-## 9. Resume instruction
+## 10. Resume instruction
 
-Resume at **mutation**. Do not revisit basic Prisoner's Dilemma theory or the deterministic simulator unless a regression appears. Parent sampling is already implemented. The next conceptual/programming invariant is that offspring are new objects derived from parent genotypes, not in-place mutations of parent references. After mutation is validated, build a single generation step and only then loop over generations.
+Resume at the **single-generation transformation**. Do not revisit Prisoner's Dilemma foundations, deterministic simulator tests, selection, or mutation unless a regression appears. Jonathan should implement the generation composition himself. Once its invariants pass, move to random population initialization, reproducible seeds, generation-level metrics, and only then the first multi-generation experiment.
