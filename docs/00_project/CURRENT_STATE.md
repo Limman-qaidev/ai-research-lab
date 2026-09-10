@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-09-10  
 **Project phase:** Stage 0F — EXP-001 first evolutionary trajectory  
-**Implementation status:** CORE SIMULATOR, POPULATION FITNESS, SELECTION, MUTATION, SINGLE-GENERATION STEP, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, RANDOM INITIALIZATION AND EXPLICIT NUMPY GENERATOR IMPLEMENTED; ONE-EVALUATION GENERATION CONTRACT FIXED; HISTORY RECORDING STILL IN REVIEW  
-**Previous gate:** COMPLETED — `Population.next_generation(fitness, sigma)` now consumes already-computed fitness and no longer re-evaluates the population  
-**Next task:** replace the broken history decorators with an explicit per-generation history list, then run the first small exploratory trajectory
+**Implementation status:** CORE SIMULATOR, POPULATION FITNESS, SELECTION, MUTATION, SINGLE-GENERATION STEP, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, RANDOM INITIALIZATION AND EXPLICIT NUMPY GENERATOR IMPLEMENTED; ONE-EVALUATION GENERATION CONTRACT FIXED; EXPERIMENT HISTORY LOOP STILL MISALIGNED  
+**Previous gate:** COMPLETED — `Population.next_generation(fitness, sigma)` consumes already-computed fitness and no longer re-evaluates the population  
+**Next task:** simplify `experiment()` so each generation evaluates exactly once and records behavioural statistics and policy statistics from the same population, then run the first exploratory trajectory
 
 ## 1. Stable project purpose
 
@@ -31,7 +31,7 @@ Use Socratic questions only for important conceptual distinctions; avoid endless
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-The simulator and elementary evolutionary system are implemented far enough to perform a first exploratory multi-generation run once history recording is made explicit and correct.
+The simulator and evolutionary operators are implemented. The remaining blocker before the first exploratory trajectory is correct alignment of generation history.
 
 ## 4. Validated core simulator and evolutionary operators
 
@@ -62,9 +62,9 @@ The provisional mutation scale remains `sigma = 0.05`.
 
 Population evaluation records mean fitness, cooperation/defection rates, and symmetric `CC`, `mixed`, `DD` outcome rates.
 
-The `Population` abstraction also records column-wise mean and standard deviation of its `N x 5` policy matrix.
+The `Population` abstraction reports column-wise mean and standard deviation of its `N x 5` policy matrix.
 
-The deterministic `[TFT, TFT, AllD]` instrumentation check matched the analytical values exactly, including cooperation `0.336666...`, `CC = 1/3`, `mixed = 2/300`, and `DD = 0.66`.
+The deterministic `[TFT, TFT, AllD]` instrumentation check matched analytical values exactly.
 
 ## 6. Random initialization and RNG
 
@@ -76,70 +76,64 @@ The generator is still module-global; this is acceptable for the first explorato
 
 ## 7. One-evaluation generation contract — fixed
 
-Jonathan changed the transition interface to:
+`Population.next_generation(fitness, sigma)` no longer evaluates internally.
 
-`Population.next_generation(fitness, sigma)`
-
-so the method no longer calls `evaluate_population` internally.
-
-The intended generation flow is now explicit:
-
-`fitness_t = population.evaluate(game)`
-
-then use the same `fitness_t` both to record the evaluated generation and to select parents/mutate into `P_(t+1)`.
-
-This satisfies the key invariant:
+The intended invariant remains:
 
 `fitness recorded in history == fitness used for selection`.
 
 Exactly one stochastic evaluation should occur per generation.
 
-## 8. History decorator attempt — not valid
+## 8. Current experiment-loop bug
 
-Jonathan next attempted a generic:
+Jonathan removed the broken decorator and introduced an explicit `experiment()` loop, but the current structure still evaluates populations twice and misaligns behavioural and policy-space statistics.
 
-`@history`
+Current sequence is effectively:
 
-decorator on both `Game._get_stats` and `Population.get_stats_population`.
+1. evaluate `P0` before the loop;
+2. generation 0 records those statistics;
+3. evaluate `P0` again;
+4. generate `P1` from the second `P0` fitness;
+5. compute mean/std of `P1`;
+6. generation 1 begins while `game.statistics` still refers to the second evaluation of `P0`.
 
-As implemented, the decorator returns an `add` function that merely appends the bound object passed at call time to a private closure list. It therefore replaces the original method body rather than wrapping and executing it.
+Therefore from generation 1 onward, a record can combine behavioural statistics from `P_(t-1)` with mean/std from `P_t`.
 
-Consequences:
+There is also unnecessary duplicate history state inside `Game`:
 
-- `Game._get_stats()` no longer executes its original statistics-collection body;
-- `Population.get_stats_population()` no longer computes/returns `(mean, std)` and instead returns `None`;
-- the private closure history is inaccessible to the experiment code;
-- the attempted `_get_stats` body is itself invalid if restored unchanged because `self.statistics` is a dict with string keys, not positional indices, and `list.append` accepts one object rather than several positional values.
+- `Game.history` is maintained separately from the experiment-level `history`;
+- `evaluate_population()` calls `self._get_stats()` automatically;
+- `experiment()` calls `game._get_stats()` again, duplicating entries;
+- `_get_stats()` returns the entire cumulative `Game.history`, so `record.extend(game._get_stats())` extends the record with nested historical rows rather than with the current scalar statistics.
 
-Do not use a decorator for history in v1. History should be explicit experiment state.
+## 9. Correct minimal generation flow
 
-## 9. Recommended minimal history design
+History should have a single owner: `experiment()`.
 
-Create one plain `history = []` owned by the experiment loop.
+For each generation `t`, perform exactly:
 
-For each generation `t`:
-
-1. evaluate the current population exactly once and obtain `fitness_t`;
-2. read `game.statistics` from that evaluation;
-3. compute `mean_pi_t, std_pi_t = population.get_stats_population()`;
-4. create one record (preferably a dict) containing `generation`, behavioural statistics, `mean_policy`, and `std_policy`;
-5. append that single record to `history`;
+1. `fitness_t = population.evaluate(game)`;
+2. read/copy `game.statistics` from that same evaluation;
+3. compute `mean_pi_t, std_pi_t = population.get_stats_population()` from that same `population`;
+4. create one history record containing generation index, behavioural statistics, mean policy and std policy;
+5. append the record once;
 6. set `population = population.next_generation(fitness_t, sigma)`.
 
-Do not call `select_parents(fitness_t)` separately for inspection before `next_generation`; that extra random draw consumes the run RNG and changes the subsequent evolutionary trajectory.
+There should be no pre-loop evaluation and no `Game.history` / `_get_stats()` mechanism in v1.
+
+Prefer one dict per generation rather than a flattened positional list because names preserve the meaning of each observable and reduce index/order mistakes.
 
 ## 10. Immediate first-run gate
 
-Before plotting or scaling:
-
-1. remove the `history` decorator/helper and `@history` annotations;
-2. restore `Population.get_stats_population()` as an ordinary method returning `(average, std)`;
-3. remove `Game._get_stats()` unless there is a clear non-decorator reason to keep it;
-4. make the random population checks real assertions, including bounds `[0,1]`;
-5. build an explicit `history = []` in the run loop with one dict per generation;
-6. run a small exploratory configuration such as `N=30`, `n_rounds=100`, `generations=50`, `sigma=0.05`, seed `42`;
-7. inspect the trajectory before any multi-seed scientific claim.
+1. remove `Game.history` and `_get_stats()` from the history path;
+2. remove the pre-loop evaluation in `experiment()`;
+3. evaluate once at the top of each generation iteration;
+4. record behavioural stats and policy mean/std before replacing the population;
+5. reuse that same `fitness_t` in `next_generation`;
+6. validate random-population invariants including parameter bounds `[0,1]`;
+7. run the first exploratory configuration, preferably `N=30`, `n_rounds=100`, `generations=50`, `sigma=0.05`, seed `42`;
+8. inspect the trajectory before plotting or making multi-seed claims.
 
 ## 11. Resume instruction
 
-Resume at **explicit generation history and first exploratory run**. The double-evaluation issue is fixed. Do not introduce caching or decorators for history. Evaluate each population exactly once, append one explicit history record, reuse the same fitness for reproduction, and then run the first small evolutionary trajectory.
+Resume at the **minimal experiment loop**. The evolutionary operators are complete. Do not add decorators, caches, or a second history store. Each generation must be evaluated exactly once, its behavioural and policy statistics recorded together, and the same fitness reused for reproduction. Once this alignment is correct, run the first exploratory trajectory.
