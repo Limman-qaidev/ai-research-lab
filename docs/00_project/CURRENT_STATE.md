@@ -1,10 +1,10 @@
 # CURRENT_STATE.md
 
 **Last updated:** 2026-09-10  
-**Project phase:** Stage 0E — EXP-001 evolutionary run design and observables  
-**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS, SELECTION, MUTATION AND SINGLE-GENERATION STEP IMPLEMENTED; BASIC OBSERVABILITY VALIDATED; POLICY-SPACE MEAN/STD IMPLEMENTED  
-**Previous gate:** COMPLETED — behavioural observables validated and policy-space summary statistics implemented  
-**Next task:** clean the `Population` generation contract, add reproducible random population initialization, then perform the first small multi-generation run
+**Project phase:** Stage 0F — EXP-001 first evolutionary trajectory  
+**Implementation status:** CORE SIMULATOR, POPULATION FITNESS, SELECTION, MUTATION, SINGLE-GENERATION STEP, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, RANDOM INITIALIZATION AND EXPLICIT NUMPY GENERATOR IMPLEMENTED  
+**Previous gate:** COMPLETED — random `Population(N)` initialization and `Population -> Population` generation contract implemented  
+**Next task:** implement generation history without double-evaluating populations, then run the first small exploratory trajectory
 
 ## 1. Stable project purpose
 
@@ -24,18 +24,18 @@ The expected working sequence remains:
 
 The assistant should not default to complete generated implementations for core learning mechanisms. AI should amplify Jonathan's reasoning and programming capability, not replace it.
 
-Socratic questioning should be used only where it tests genuinely important concepts; avoid endless micro-questions. Material progress must be persisted so chat boundaries never force a restart.
+Use Socratic questions only for important conceptual distinctions; avoid endless micro-questions and keep application progress visible.
 
 ## 3. Active experiment — EXP-001
 
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-The game engine, population evaluator, selection, mutation, one-generation evolutionary transformation, behavioural observables, and first policy-space observables are implemented.
+The repeated-game engine and elementary evolutionary system are now implemented far enough to perform a first exploratory multi-generation run once history recording is correct.
 
 ## 4. Validated core simulator
 
-Jonathan implemented a stochastic memory-one `Policy` with parameters `(p0, p_CC, p_CD, p_DC, p_DD)`, stochastic action sampling, player-relative previous states, Prisoner's Dilemma payoff lookup, and fixed-horizon repeated play.
+A stochastic memory-one `Policy` is represented by `(p0, p_CC, p_CD, p_DC, p_DD)` and uses stochastic action sampling with player-relative previous states.
 
 For a 100-round horizon, deterministic reference matchups were confirmed exactly:
 
@@ -46,90 +46,106 @@ For a 100-round horizon, deterministic reference matchups were confirmed exactly
 - TFT vs TFT -> `(300, 300)`;
 - TFT vs AllC -> `(300, 300)`.
 
-Population fitness is evaluated over one match per unordered pair:
+Population fitness is one round-robin match per unordered pair:
 
 `F_i = total_payoff_i / ((N-1) * n_rounds)`.
 
-Fitness-proportional selection and Gaussian mutation are implemented, with mutation
+Fitness-proportional selection is `q_i = F_i / sum(F)` with replacement.
 
-`pi_child = clip(pi_parent + epsilon, 0, 1)`, `epsilon_k ~ Normal(0, sigma^2)`.
+Mutation is Gaussian and bounded:
 
-The one-generation transformation exists:
+`pi_child = clip(pi_parent + epsilon, 0, 1)`, with `epsilon_k ~ Normal(0, sigma^2)`.
 
-`P_t -> evaluate -> fitness -> select parents -> mutate -> P_(t+1)`.
+The provisional mutation scale remains `sigma = 0.05`.
 
-## 5. Behavioural observability — validated
+## 5. Behavioural and policy-space observability
 
-During population evaluation the simulator records:
+Population evaluation records:
 
 - mean fitness;
 - cooperation and defection rates;
 - symmetric joint-outcome rates `CC`, `mixed = CD + DC`, and `DD`.
 
-For `[TFT, TFT, AllD]`, `N=3`, `n_rounds=100`, the implementation produced exactly the analytically expected values:
+For `[TFT, TFT, AllD]`, `N=3`, `n_rounds=100`, observed values matched the analytical result exactly:
 
-- `fitness_average = 1.6766666666666667`;
-- `cooperation_rate = 0.33666666666666667`;
-- `defection_rate = 0.6633333333333333`;
-- `CC_rate = 0.3333333333333333`;
-- `mixed_rate = 0.006666666666666667`;
-- `DD_rate = 0.66`.
+- mean fitness `1.6766666666666667`;
+- cooperation `0.33666666666666667`;
+- defection `0.6633333333333333`;
+- `CC = 0.3333333333333333`;
+- `mixed = 0.006666666666666667`;
+- `DD = 0.66`.
 
-Validated invariants:
+The `Population` abstraction also builds an `N x 5` ndarray and reports column-wise mean and standard deviation of policy parameters.
 
-`cooperation_rate + defection_rate = 1`
-
-`CC_rate + mixed_rate + DD_rate = 1`.
-
-Use tolerance-based floating-point checks such as `np.isclose` in tests.
-
-## 6. Policy-space observables — implemented
-
-Jonathan introduced a `Population` abstraction containing its list of `Policy` objects and implemented population parameter summaries by assembling an `N x 5` policy matrix and computing column-wise:
-
-- mean policy vector;
-- standard deviation vector.
-
-For the test population `[TFT, TFT, AllD]`, the expected summaries are:
+For `[TFT, TFT, AllD]`:
 
 `mean_pi = (2/3, 2/3, 0, 2/3, 0)`
 
-`std_pi = (sqrt(2)/3, sqrt(2)/3, 0, sqrt(2)/3, 0)` approximately `(0.4714, 0.4714, 0, 0.4714, 0)`.
+`std_pi ≈ (0.4714, 0.4714, 0, 0.4714, 0)`.
 
-These observables will help distinguish behavioural cooperation from the policy mechanism producing it.
+## 6. Random initialization and RNG — implemented
 
-### Small implementation cleanups before repeated generations
+`Population(N=...)` now creates `N` independent policies, each with five parameters sampled uniformly from `[0,1]`.
 
-The current code uses `np.matrix`; prefer a normal NumPy `ndarray` (e.g. from `np.array`/`np.stack`) because `np.matrix` has special two-dimensional semantics and is unnecessary here.
+The policy matrix uses `np.array(...)` and therefore has intended shape `(N, 5)`.
 
-The helper is named `__get_matrix__`; it is not a Python special method, so a single-underscore private helper name is clearer.
+The previous global `np.random.seed(...)` / module-level random calls were replaced by a NumPy `Generator` created with:
 
-More importantly, `Population.next_generation(self, game, population, sigma)` currently mixes an externally supplied `population` for evaluation with `self.policies` for parent selection. This creates two possible population sources. Before a multi-generation loop, make the contract internally consistent: a `Population` method should operate on its own `self.policies`, and the returned next generation should have a clear representation (preferably another `Population` if continuing with this abstraction).
+`rng = np.random.default_rng(42)`.
 
-## 7. Reproducibility status
+Current stochastic mechanisms use this generator for:
 
-The current script uses `np.random.seed(42)`, which is adequate for implementation checks in a fresh process with unchanged random-call order.
-
-Before scientific runs, use an explicit run-level NumPy random generator and route all stochastic mechanisms through it:
-
-- random initial policy generation;
-- action sampling;
+- policy initialization;
+- policy action sampling;
 - parent selection;
 - mutation.
 
-Record the seed, population size, rounds per match, generation count, and sigma for every run.
+This is sufficient for the first exploratory run in a fresh process. A later refinement should make the RNG an explicit run-owned dependency rather than a module-global object, especially for independent multi-seed experiments.
 
-## 8. Immediate next gate
+## 7. Population generation contract — cleaned
 
-Do not yet scale to long runs.
+`Population.next_generation(game, sigma)` now evaluates `self.policies`, selects parents from that same population, mutates them, and returns a new `Population`.
 
-1. make the `Population.next_generation` contract self-consistent;
-2. use an `ndarray` rather than `np.matrix` for policy summaries;
-3. create a genuinely random initial population with five independent parameters in `[0,1]` per policy;
-4. move from global RNG state to an explicit run-level generator;
-5. save one history record per evaluated generation containing at least fitness, cooperation, joint outcomes, mean policy vector, and standard-deviation vector;
-6. run a small exploratory trajectory and interpret it before multi-seed experiments.
+This removes the earlier ambiguity where an externally supplied population could be evaluated while parents were selected from `self.policies`.
 
-## 9. Resume instruction
+Current conceptual transition:
 
-Resume at **random initialization and clean population iteration**. Do not revisit Prisoner's Dilemma foundations or already validated operators unless a regression appears. Policy-space mean/std now exist. The next objective is to make `Population -> Population` evolution unambiguous and reproducible, initialize `P_0` randomly, and then execute the first small evolutionary trajectory.
+`P_t -> evaluate P_t -> fitness_t -> select parents from P_t -> mutate -> P_(t+1)`.
+
+## 8. Critical issue before the multi-generation loop: do not evaluate twice
+
+The next step is to record one history row per generation. Be careful not to do both:
+
+1. `population.evaluate(game)` to obtain statistics for history; and then
+2. `population.next_generation(game, sigma)`, which currently evaluates the same population again internally.
+
+Because policy actions are stochastic, those are two different evaluations and consume different RNG draws. Selection would then use a different fitness realization from the one recorded in history, and the extra evaluation would change the complete future random trajectory.
+
+Before looping, choose one evaluation per generation and reuse that same fitness for both recorded statistics and parent selection.
+
+A clean conceptual generation step is:
+
+`evaluate once -> record statistics/mean/std -> select using that fitness -> mutate -> next population`.
+
+The exact interface is for Jonathan to implement; avoid providing a full core implementation unless requested.
+
+## 9. Small cleanup items
+
+- `np.isclose(...)` used as a bare expression does not test anything; wrap it in `assert` when intended as a validation.
+- `Policy.__init__` is annotated with `np.ndarray` but development examples sometimes pass Python lists; align the contract later.
+- `Game.evaluate_population` can use the value returned by `play_game` rather than reading `self.total_score`; this is cleanup, not a scientific blocker.
+- A module-global `rng` is better than the legacy global NumPy random API but is not yet fully isolated run-level RNG ownership.
+
+## 10. Immediate first-run gate
+
+Before scaling or plotting:
+
+1. validate a random `Population(N)` has `N` policies, policy matrix shape `(N,5)`, and all entries in `[0,1]`;
+2. restructure generation execution so each population is evaluated exactly once;
+3. save one history record from that evaluation containing at least generation index, mean fitness, cooperation rate, `CC/mixed/DD`, mean policy vector, and policy std vector;
+4. use a small exploratory configuration such as `N=30`, `n_rounds=100`, `generations=50`, `sigma=0.05`, seed `42`;
+5. inspect the trajectory before any multi-seed scientific claim.
+
+## 11. Resume instruction
+
+Resume at **generation history and first exploratory run**. Do not revisit Prisoner's Dilemma foundations or already validated evolutionary operators unless a regression appears. Random initialization and a NumPy Generator are now in place. The key next invariant is one stochastic population evaluation per generation, reused for both history and selection.
