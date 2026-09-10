@@ -1,10 +1,10 @@
 # CURRENT_STATE.md
 
 **Last updated:** 2026-09-10  
-**Project phase:** Stage 0C — EXP-001 minimal simulator implementation and validation  
-**Implementation status:** IN PROGRESS  
-**Previous gate:** COMPLETED — core IPD foundations and v1 design choices established  
-**Next task:** validate the minimal repeated-game simulator with deterministic baseline tests before implementing population evolution
+**Project phase:** Stage 0D — EXP-001 population evaluation and evolutionary dynamics  
+**Implementation status:** MINIMAL SIMULATOR VALIDATED  
+**Previous gate:** COMPLETED — deterministic repeated-game baseline tests passed  
+**Next task:** design and implement population-level fitness evaluation before selection and mutation
 
 ## 1. Stable project purpose
 
@@ -24,8 +24,6 @@ The expected working sequence remains:
 
 The assistant should not default to complete generated implementations for core learning mechanisms. AI should amplify Jonathan's reasoning and programming capability, not replace it.
 
-### Pacing adjustment
-
 Socratic questioning should be used where it tests genuinely important concepts, but not as an open-ended chain of micro-questions. Material progress must be persisted so chat boundaries never force a restart.
 
 ## 3. Active experiment — EXP-001
@@ -33,13 +31,13 @@ Socratic questioning should be used where it tests genuinely important concepts,
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-Core conceptual foundations are complete. The project has moved from design into the first implementation milestone.
+Core conceptual foundations and the minimal repeated-game simulator are now complete enough to begin population-level work.
 
-## 4. Current implementation progress
+## 4. Validated minimal simulator
 
-Jonathan has written a local candidate minimal simulator containing:
+Jonathan implemented a simulator containing:
 
-- a `Policy` represented by `(p0, p_CC, p_CD, p_DC, p_DD)`;
+- a stochastic memory-one `Policy` represented by `(p0, p_CC, p_CD, p_DC, p_DD)`;
 - `cooperation_probability(previous_state)` with explicit `None/CC/CD/DC/DD` mapping;
 - stochastic action sampling from `[p, 1-p]`;
 - a Prisoner's Dilemma payoff lookup;
@@ -47,40 +45,63 @@ Jonathan has written a local candidate minimal simulator containing:
 - repeated play for a fixed number of rounds;
 - cumulative game scores.
 
-The candidate should analytically produce `(99, 104)` for TFT versus AllD over 100 rounds.
+For a 100-round horizon, the deterministic reference matchups were confirmed exactly:
 
-### Review issue still open
+- AllC vs AllC -> `(300, 300)`;
+- AllD vs AllC -> `(500, 0)`;
+- AllD vs AllD -> `(100, 100)`;
+- TFT vs AllD -> `(99, 104)`;
+- TFT vs TFT -> `(300, 300)`;
+- TFT vs AllC -> `(300, 300)`.
 
-The current `Game` object stores previous states and cumulative score as instance state. Reusing the same `Game` instance for a second match would therefore continue from the previous match unless the state is explicitly reset. Before population-level simulation, match state should be local to a single `play_game` execution or reliably reset at its start.
+These results validate the first-round behaviour, payoff mapping, repeated-state transition logic, and player-relative `CD/DC` ordering for the deterministic baselines.
 
-There are also minor type-contract mismatches (`payoff` and `score` annotations versus returned NumPy arrays) and `play_game` currently returns no score directly. These are cleanup items, not conceptual blockers.
+## 5. Current gate — population fitness
 
-## 5. Immediate validation gate
+The next milestone is **not yet full evolution**. First implement population-level evaluation correctly.
 
-Do **not** implement population evolution yet.
+Target mechanism:
 
-First create deterministic baseline tests for a fixed horizon `n`:
+1. create a population of policies;
+2. evaluate every unordered pair once (round-robin, no self-play for v1);
+3. accumulate each individual's payoff across opponents;
+4. convert accumulated payoff to mean payoff per round/opponent;
+5. return a fitness vector aligned with the population indices.
 
-- AllC vs AllC -> `(3n, 3n)`;
-- AllD vs AllC -> `(5n, 0)`;
-- TFT vs AllC -> `(3n, 3n)`;
-- TFT vs AllD -> `(n-1, n+4)`;
-- TFT vs TFT -> `(3n, 3n)`;
-- optionally AllD vs AllD -> `(n, n)`.
+For population size `N`, the number of pairwise games should be:
 
-For `n=100`, TFT vs AllD must equal `(99, 104)`.
+`N(N-1)/2`.
 
-After these invariants pass, the minimal repeated-game simulator milestone is complete and the next phase may introduce population evaluation, fitness, selection, and mutation.
+The v1 candidate fitness definition is:
 
-## 6. What has NOT been done
+`F_i = total_payoff_i / ((N-1) * n_rounds)`.
 
-- deterministic baseline tests have not yet been confirmed;
-- no population container/evaluation loop has been implemented;
-- no evolutionary selection operator has been implemented;
-- no mutation operator has been implemented;
-- no numerical evolutionary experiment has been run;
-- no RL or LLM framework has been selected.
+Important invariant: fitness is frequency-dependent because every candidate is evaluated against the current population composition.
 
-## 7. Resume instruction
+Do not implement reproduction, mutation, generations, or plotting until this population fitness layer is independently checked.
 
-Resume by reviewing and testing Jonathan's minimal `Policy` + `Game` implementation. Fix match-state lifecycle before reusing `Game` across pairings. Do not restart Prisoner's Dilemma theory and do not jump to population evolution until the deterministic matchups pass.
+## 6. Validation ideas for population evaluation
+
+Before selection/mutation, use tiny populations with analytically predictable outcomes, for example:
+
+- population `[AllC, AllC]`;
+- population `[AllC, AllD]`;
+- population `[AllC, AllC, AllD]`;
+- population `[TFT, TFT, AllD]`.
+
+Manually derive expected aggregate and mean fitness before running the code. This will test bookkeeping independently of the already-validated two-policy game engine.
+
+## 7. Still outstanding
+
+- confirm match state is reset/local for every pairwise game when a `Game` object is reused;
+- align type annotations with actual return types;
+- population representation is not yet implemented;
+- round-robin evaluator is not yet implemented;
+- selection operator is not yet implemented;
+- mutation operator is not yet implemented;
+- no evolutionary generations have been run;
+- no experimental results exist yet.
+
+## 8. Resume instruction
+
+Resume at **population-level fitness evaluation**. Do not revisit basic Prisoner's Dilemma theory or the deterministic simulator unless a regression appears. Jonathan should implement the core population evaluator himself; the assistant should help derive invariants, review design/code, and only then move to selection and mutation.
