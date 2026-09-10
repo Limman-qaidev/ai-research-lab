@@ -1,10 +1,10 @@
 # CURRENT_STATE.md
 
 **Last updated:** 2026-09-10  
-**Project phase:** Stage 0D — EXP-001 population evaluation and evolutionary dynamics  
-**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS IMPLEMENTED; FITNESS-PROPORTIONAL SELECTION IMPLEMENTED; MUTATION IMPLEMENTED AND VALIDATED  
-**Previous gate:** COMPLETED — mutation creates bounded offspring without altering parents  
-**Next task:** combine evaluation, selection, and mutation into one complete generation step, then validate generation invariants before looping over generations
+**Project phase:** Stage 0E — EXP-001 evolutionary run design and observables  
+**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS IMPLEMENTED; FITNESS-PROPORTIONAL SELECTION IMPLEMENTED; MUTATION VALIDATED; SINGLE-GENERATION STEP IMPLEMENTED  
+**Previous gate:** COMPLETED — evaluation, selection and mutation are composed into one next-generation transformation  
+**Next task:** define generation-level observables and reproducible random initialization before looping over generations
 
 ## 1. Stable project purpose
 
@@ -24,29 +24,20 @@ The expected working sequence remains:
 
 The assistant should not default to complete generated implementations for core learning mechanisms. AI should amplify Jonathan's reasoning and programming capability, not replace it.
 
-Socratic questioning should be used where it tests genuinely important concepts, but not as an open-ended chain of micro-questions. Material progress must be persisted so chat boundaries never force a restart.
+Socratic questioning should be used only where it tests genuinely important concepts; avoid endless micro-questions. Material progress must be persisted so chat boundaries never force a restart.
 
 ## 3. Active experiment — EXP-001
 
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-Core conceptual foundations and the minimal repeated-game simulator are complete. The project is now assembling the evolutionary loop from independently understood pieces.
+The game engine and the elementary evolutionary operators now exist. The project has reached the point where experimental observables and reproducibility must be defined before any long evolutionary run is trusted.
 
 ## 4. Validated minimal simulator
 
-Jonathan implemented a simulator containing:
+Jonathan implemented a stochastic memory-one `Policy` with parameters `(p0, p_CC, p_CD, p_DC, p_DD)`, stochastic action sampling, player-relative previous states, Prisoner's Dilemma payoff lookup, and fixed-horizon repeated play.
 
-- a stochastic memory-one `Policy` represented by `(p0, p_CC, p_CD, p_DC, p_DD)`;
-- `cooperation_probability(previous_state)` with explicit `None/CC/CD/DC/DD` mapping;
-- stochastic action sampling from `[p, 1-p]`;
-- a Prisoner's Dilemma payoff lookup;
-- player-relative previous states (`state_a = action_a + action_b`, `state_b = action_b + action_a`);
-- repeated play for a fixed number of rounds;
-- cumulative game scores;
-- reset of match state at the start of every `play_game` call.
-
-For a 100-round horizon, the deterministic reference matchups were confirmed exactly:
+For a 100-round horizon, deterministic reference matchups were confirmed exactly:
 
 - AllC vs AllC -> `(300, 300)`;
 - AllD vs AllC -> `(500, 0)`;
@@ -55,95 +46,96 @@ For a 100-round horizon, the deterministic reference matchups were confirmed exa
 - TFT vs TFT -> `(300, 300)`;
 - TFT vs AllC -> `(300, 300)`.
 
-## 5. Population fitness layer
+## 5. Population fitness
 
-Jonathan implemented round-robin evaluation using a Python list of `Policy` objects.
-
-For population size `N`:
-
-1. every unordered pair `(i,j)` is evaluated exactly once;
-2. both payoffs from the repeated match are accumulated at their population indices;
-3. fitness is normalized as
+Population evaluation uses one match for every unordered pair. For population size `N`:
 
 `F_i = total_payoff_i / ((N-1) * n_rounds)`.
 
-Analytical validation targets are:
+This keeps fitness frequency-dependent on the current population composition.
+
+Analytical targets used during development:
 
 - `[AllC, AllC, AllD]` -> `(1.5, 1.5, 5.0)`;
 - `[TFT, TFT, AllD]` -> `(1.995, 1.995, 1.04)`.
 
-`play_game` now returns the pairwise total, although `evaluate_population` still reads `self.total_score`; using the returned value directly is a later cleanup, not a conceptual blocker.
+## 6. Selection
 
-## 6. Fitness-proportional selection
+Fitness-proportional parent sampling is implemented:
 
-Jonathan implemented parent sampling with replacement using:
+`q_i = F_i / sum_j(F_j)`.
 
-`q_i = F_i / sum_j(F_j)`
+Exactly `N` parents are sampled with replacement from the current population.
 
-and NumPy weighted sampling to select `N` parents from the current population.
+## 7. Mutation
 
-The selection operator permits:
-
-- the same parent to be chosen multiple times;
-- lower-fitness parents to reproduce occasionally;
-- some parents to leave no descendants in a generation.
-
-## 7. Mutation — implemented and validated
-
-Jonathan implemented local Gaussian mutation as:
+Gaussian local mutation is implemented:
 
 `epsilon_k ~ Normal(0, sigma^2)`
 
 `pi_child = clip(pi_parent + epsilon, 0, 1)`.
 
-The implementation:
+Every child is a new `Policy`, the parent remains unchanged, and child parameters are constrained to `[0,1]`.
 
-- perturbs all five policy parameters;
-- creates a new `Policy` for the child;
-- leaves the selected parent unchanged;
-- clips all child probabilities to `[0,1]`.
+The provisional experiment scale remains `sigma=0.05`; larger values used during coding were implementation checks, not ratified experimental choices.
 
-A direct test using TFT-like parent `(1,1,0,1,0)` and `sigma=0.1` produced an offspring such as:
+## 8. Single-generation transformation — implemented
 
-`(0.99917545, 1.0, 0.0770555, 0.91572224, 0.0)`
+Jonathan implemented:
 
-while the parent remained exactly `(1,1,0,1,0)`. This confirms both object-identity safety and boundary clipping behaviour.
+`next_generation(game, population, sigma)`
 
-The experimental v1 mutation scale remains provisionally `sigma=0.05`; `sigma=0.1` was used only as an implementation check. Mutation-scale sensitivity should be studied later rather than assumed.
+with the composition:
 
-## 8. Next mechanism — one complete generation
+1. evaluate the current population;
+2. sample `N` parents proportionally to fitness;
+3. create one independently mutated child for each selected parent;
+4. return the resulting `N`-policy population.
 
-Do not add plotting or long multi-generation runs yet.
+This is the first complete evolutionary transition:
 
-Construct one generation as the composition:
+`P_t -> fitness -> selection -> mutation -> P_(t+1)`.
 
-1. `fitness = evaluate_population(population)`;
-2. `parents = select_parents(population, fitness)`;
-3. for each selected parent, create one new mutated `Policy`;
-4. collect exactly `N` offspring as the next population.
+### Testing nuance
 
-Generation-level invariants to validate before looping:
+Calling `select_parents(...)` outside `next_generation(...)` and then calling `next_generation(...)` performs two independent parent selections. Therefore an externally printed `parents[0]` is not necessarily the parent of `next_generation(...)[0]`. To test exact parent-child identity or `sigma=0`, selection and mutation should be observed within the same transition or tested separately.
 
-- population size remains exactly `N`;
-- every member of the next generation is a newly created `Policy`;
-- every parameter remains in `[0,1]`;
-- the original population is unchanged after reproduction/mutation;
-- selection probabilities sum to 1;
-- with `sigma=0`, offspring genotypes are exact copies of selected parents (but still distinct objects).
+## 9. Current scientific gate — observables before long runs
 
-Only after this single-generation transformation is validated should the experiment introduce repeated generations and record population-level metrics.
+Do **not** immediately run hundreds of generations and inspect only final fitness.
 
-## 9. Still outstanding
+The primary EXP-001 question concerns emergence and persistence of reciprocal cooperation. Fitness alone cannot establish that cooperation emerged: exploitative populations can have high individual fitness in some compositions, and aggregate fitness does not identify the behavioural mechanism.
 
-- explicitly confirm the analytical population-fitness outputs if not already recorded;
-- combine evaluation, selection, and mutation into a validated generation step;
-- initialize a genuinely random population in `[0,1]^5`;
-- add reproducible random-number handling before scientific runs;
-- define and record generation-level metrics;
-- loop over multiple generations;
-- align minor type annotations and reduce unnecessary hidden `Game` state later;
-- no evolutionary experiment has been run yet.
+Before the first multi-generation run, define and record at least:
 
-## 10. Resume instruction
+- mean population fitness per generation;
+- population cooperation rate per generation (fraction of played actions that are `C`);
+- distribution or mean of each policy parameter `(p0, p_CC, p_CD, p_DC, p_DD)`;
+- population diversity / dispersion in policy space;
+- optional clipping frequency during mutation.
 
-Resume at the **single-generation transformation**. Do not revisit Prisoner's Dilemma foundations, deterministic simulator tests, selection, or mutation unless a regression appears. Jonathan should implement the generation composition himself. Once its invariants pass, move to random population initialization, reproducible seeds, generation-level metrics, and only then the first multi-generation experiment.
+The first implementation may start with a minimal subset, but **cooperation rate is mandatory** if the experiment is to answer its stated research question.
+
+## 10. Reproducibility gate
+
+Before scientific runs:
+
+- initialize a genuinely random population in `[0,1]^5` rather than seeding known strategies;
+- control randomness with an explicit seed / NumPy random generator so complete runs can be reproduced;
+- record the chosen population size, number of rounds, number of generations, sigma, and seed;
+- later repeat across multiple seeds before making claims about emergence.
+
+## 11. Still outstanding
+
+- validate single-generation invariants explicitly if desired (size, bounds, parent immutability, `sigma=0` copy behaviour);
+- instrument game/population evaluation to measure cooperation rate without changing the strategic rules;
+- define minimal generation-history structure;
+- initialize random populations reproducibly;
+- choose provisional population size and generation count for a first exploratory run;
+- loop over generations and save metrics;
+- repeat across seeds before drawing scientific conclusions;
+- align minor type annotations and reduce unnecessary hidden `Game` state later.
+
+## 12. Resume instruction
+
+Resume at **experiment observables and reproducibility**, not at game-theory foundations or operator implementation. The single-generation evolutionary transformation already exists. Before running long trajectories, make cooperation observable and create reproducible random initialization. Then perform a small exploratory multi-generation run and analyse the trajectory before scaling up.
