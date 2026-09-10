@@ -1,10 +1,10 @@
 # CURRENT_STATE.md
 
 **Last updated:** 2026-09-10  
-**Project phase:** Stage 0F — EXP-001 first evolutionary trajectory  
-**Implementation status:** CORE SIMULATOR, POPULATION FITNESS, SELECTION, MUTATION, SINGLE-GENERATION STEP, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, RANDOM INITIALIZATION AND EXPLICIT NUMPY GENERATOR IMPLEMENTED; ONE-EVALUATION GENERATION CONTRACT FIXED; EXPERIMENT HISTORY LOOP STILL MISALIGNED  
-**Previous gate:** COMPLETED — `Population.next_generation(fitness, sigma)` consumes already-computed fitness and no longer re-evaluates the population  
-**Next task:** simplify `experiment()` so each generation evaluates exactly once and records behavioural statistics and policy statistics from the same population, then run the first exploratory trajectory
+**Project phase:** Stage 0G — EXP-001 exploratory evolutionary dynamics  
+**Implementation status:** CORE SIMULATOR, POPULATION FITNESS, SELECTION, MUTATION, GENERATION TRANSITION, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, RANDOM INITIALIZATION, EXPLICIT NUMPY GENERATOR AND ALIGNED EXPERIMENT HISTORY IMPLEMENTED; FIRST EXPLORATORY TRAJECTORY COMPLETED  
+**Previous gate:** COMPLETED — each generation is evaluated exactly once and the same fitness is reused for history and reproduction  
+**Next task:** remove redundant `Game.history`, add an explicit reciprocity/conditional-response observable, then run a longer exploratory trajectory before any multi-seed claim
 
 ## 1. Stable project purpose
 
@@ -31,7 +31,7 @@ Use Socratic questions only for important conceptual distinctions; avoid endless
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-The simulator and evolutionary operators are implemented. The remaining blocker before the first exploratory trajectory is correct alignment of generation history.
+The repeated-game simulator and first complete population-evolution experiment loop are now operational. The project has produced its first multi-generation exploratory trajectory from a genuinely random stochastic memory-one population.
 
 ## 4. Validated core simulator and evolutionary operators
 
@@ -60,9 +60,13 @@ The provisional mutation scale remains `sigma = 0.05`.
 
 ## 5. Behavioural and policy-space observability
 
-Population evaluation records mean fitness, cooperation/defection rates, and symmetric `CC`, `mixed`, `DD` outcome rates.
+Population evaluation records:
 
-The `Population` abstraction reports column-wise mean and standard deviation of its `N x 5` policy matrix.
+- mean fitness;
+- cooperation and defection rates;
+- symmetric joint-outcome rates `CC`, `mixed = CD + DC`, and `DD`.
+
+The `Population` abstraction reports the column-wise mean and standard deviation of its `N x 5` policy matrix.
 
 The deterministic `[TFT, TFT, AllD]` instrumentation check matched analytical values exactly.
 
@@ -72,68 +76,102 @@ The deterministic `[TFT, TFT, AllD]` instrumentation check matched analytical va
 
 All current stochastic mechanisms use a NumPy `Generator` created with `np.random.default_rng(42)` for initialization, action sampling, selection, and mutation.
 
-The generator is still module-global; this is acceptable for the first exploratory run. Later multi-seed experiments should make RNG ownership explicit per run.
+The generator is still module-global. This is acceptable for the current exploratory stage, but multi-seed experiments should make the RNG an explicit run-owned dependency.
 
-## 7. One-evaluation generation contract — fixed
+## 7. Generation-history contract — fixed
 
-`Population.next_generation(fitness, sigma)` no longer evaluates internally.
+The experiment loop now performs exactly one stochastic evaluation per generation:
 
-The intended invariant remains:
+1. `fitness_t = population.evaluate(game)`;
+2. read `game.statistics` from that evaluation;
+3. compute mean/std from that same `population`;
+4. append one explicit dict record to experiment-level `history`;
+5. produce `P_(t+1)` using `population.next_generation(fitness_t, sigma)`.
+
+Therefore:
 
 `fitness recorded in history == fitness used for selection`.
 
-Exactly one stochastic evaluation should occur per generation.
+Behavioural statistics and policy-space statistics in each history row refer to the same `P_t`.
 
-## 8. Current experiment-loop bug
+## 8. First exploratory trajectory — completed
 
-Jonathan removed the broken decorator and introduced an explicit `experiment()` loop, but the current structure still evaluates populations twice and misaligns behavioural and policy-space statistics.
+Jonathan ran an initial trajectory with:
 
-Current sequence is effectively:
+- population size `N = 100`;
+- fixed match horizon `n_rounds = 100`;
+- generations `G = 10`;
+- mutation scale `sigma = 0.05`;
+- RNG seed `42`.
 
-1. evaluate `P0` before the loop;
-2. generation 0 records those statistics;
-3. evaluate `P0` again;
-4. generate `P1` from the second `P0` fitness;
-5. compute mean/std of `P1`;
-6. generation 1 begins while `game.statistics` still refers to the second evaluation of `P0`.
+This is an exploratory implementation/science check, not a basis for general conclusions.
 
-Therefore from generation 1 onward, a record can combine behavioural statistics from `P_(t-1)` with mean/std from `P_t`.
+Observed generation 0 -> generation 9 changes included:
 
-There is also unnecessary duplicate history state inside `Game`:
+- mean fitness: `2.2228 -> 1.8075`;
+- cooperation rate: `0.4868 -> 0.3040`;
+- `CC_rate`: `0.2376 -> 0.1045`;
+- `mixed_rate`: `0.4985 -> 0.3990`;
+- `DD_rate`: `0.2640 -> 0.4965`.
 
-- `Game.history` is maintained separately from the experiment-level `history`;
-- `evaluate_population()` calls `self._get_stats()` automatically;
-- `experiment()` calls `game._get_stats()` again, duplicating entries;
-- `_get_stats()` returns the entire cumulative `Game.history`, so `record.extend(game._get_stats())` extends the record with nested historical rows rather than with the current scalar statistics.
+Thus aggregate cooperation decreased substantially during this short run while mutual defection increased.
 
-## 9. Correct minimal generation flow
+Mean policy vector changed from approximately:
 
-History should have a single owner: `experiment()`.
+`(0.5277, 0.5122, 0.5152, 0.4308, 0.4925)`
 
-For each generation `t`, perform exactly:
+to:
 
-1. `fitness_t = population.evaluate(game)`;
-2. read/copy `game.statistics` from that same evaluation;
-3. compute `mean_pi_t, std_pi_t = population.get_stats_population()` from that same `population`;
-4. create one history record containing generation index, behavioural statistics, mean policy and std policy;
-5. append the record once;
-6. set `population = population.next_generation(fitness_t, sigma)`.
+`(0.5594, 0.4718, 0.3185, 0.4031, 0.2617)`.
 
-There should be no pre-loop evaluation and no `Game.history` / `_get_stats()` mechanism in v1.
+The strongest directional changes were decreases in `p_CD` and `p_DD`, while `p_CC` and `p_DC` decreased much less.
 
-Prefer one dict per generation rather than a flattened positional list because names preserve the meaning of each observable and reduce index/order mistakes.
+## 9. Preliminary reciprocity-like signal
 
-## 10. Immediate first-run gate
+For a self-first memory-one state representation, the opponent cooperated previously in states `CC` and `DC`, and defected previously in states `CD` and `DD`.
 
-1. remove `Game.history` and `_get_stats()` from the history path;
-2. remove the pre-loop evaluation in `experiment()`;
-3. evaluate once at the top of each generation iteration;
-4. record behavioural stats and policy mean/std before replacing the population;
-5. reuse that same `fitness_t` in `next_generation`;
-6. validate random-population invariants including parameter bounds `[0,1]`;
-7. run the first exploratory configuration, preferably `N=30`, `n_rounds=100`, `generations=50`, `sigma=0.05`, seed `42`;
-8. inspect the trajectory before plotting or making multi-seed claims.
+A simple conditional-response / reciprocity index is therefore:
 
-## 11. Resume instruction
+`R = ((p_CC + p_DC) - (p_CD + p_DD)) / 2`.
 
-Resume at the **minimal experiment loop**. The evolutionary operators are complete. Do not add decorators, caches, or a second history store. Each generation must be evaluated exactly once, its behavioural and policy statistics recorded together, and the same fitness reused for reproduction. Once this alignment is correct, run the first exploratory trajectory.
+Interpretation:
+
+- `R > 0`: greater willingness to cooperate after opponent cooperation than after opponent defection;
+- `R = 0`: no average discrimination based on opponent's previous action;
+- `R < 0`: reverse conditionality.
+
+Using the population mean parameters from the first run:
+
+- generation 0: `R ≈ -0.0323`;
+- generation 9: `R ≈ +0.1473`.
+
+Across the ten recorded generations this index was approximately:
+
+`[-0.0323, 0.0036, -0.0202, 0.0515, 0.0896, 0.1239, 0.0756, 0.0921, 0.1458, 0.1473]`.
+
+This is an interesting exploratory signal: aggregate cooperation fell, but the mean policy became more conditionally responsive to whether the opponent had cooperated or defected. Do **not** yet call this emergence of reciprocal cooperation. The population remains heterogeneous, the run is short, and only one seed has been observed. The signal should become an explicit observable and then be tested over longer and multi-seed runs.
+
+## 10. Remaining cleanup
+
+`Game` still contains an internal `history` list and `_get_stats()` that is automatically called by `evaluate_population()`. This no longer causes the double-evaluation bug and does not affect the RNG, but it is redundant because experiment-level `history` is now the authoritative trajectory record. Remove it to avoid two history stores and future confusion.
+
+Other non-blocking cleanup:
+
+- make `experiment()` either require explicit `population`/`game` arguments or restore safe creation when they are `None`;
+- lower the default generation count from `1000` for exploratory use or require it explicitly;
+- align `Policy.__init__` typing with accepted array-like inputs;
+- eventually make RNG ownership explicit per experimental run;
+- later record clipping frequency during mutation.
+
+## 11. Immediate next gate
+
+1. remove redundant `Game.history` / `_get_stats()`;
+2. add the reciprocity index `R` to each generation history row;
+3. keep cooperation rate and mean/std policy observables;
+4. run a longer exploratory trajectory, e.g. `N=30`, `n_rounds=100`, `G=50`, `sigma=0.05`, seed `42`, or retain `N=100` if runtime is acceptable;
+5. inspect whether reciprocity-like conditionality persists, collapses, or coexists with low aggregate cooperation;
+6. only after understanding one longer trajectory move to multiple independent seeds.
+
+## 12. Resume instruction
+
+Resume at **analysis of the first evolutionary dynamics and explicit reciprocity observability**. The experiment loop is now structurally correct. Do not revisit basic game theory or evolutionary operators unless a regression appears. The next scientific question is not merely whether cooperation rises, but whether selection is producing stable conditional/reciprocal response structure and under what conditions.
