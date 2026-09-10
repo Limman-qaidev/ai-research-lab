@@ -4,7 +4,7 @@
 **Project phase:** Stage 0F — EXP-001 first evolutionary trajectory  
 **Implementation status:** CORE SIMULATOR, POPULATION FITNESS, SELECTION, MUTATION, SINGLE-GENERATION STEP, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, RANDOM INITIALIZATION AND EXPLICIT NUMPY GENERATOR IMPLEMENTED  
 **Previous gate:** COMPLETED — random `Population(N)` initialization and `Population -> Population` generation contract implemented  
-**Next task:** implement generation history without double-evaluating populations, then run the first small exploratory trajectory
+**Next task:** implement generation history with exactly one stochastic evaluation per generation, then run the first small exploratory trajectory
 
 ## 1. Stable project purpose
 
@@ -31,7 +31,7 @@ Use Socratic questions only for important conceptual distinctions; avoid endless
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-The repeated-game engine and elementary evolutionary system are now implemented far enough to perform a first exploratory multi-generation run once history recording is correct.
+The repeated-game engine and elementary evolutionary system are implemented far enough to perform a first exploratory multi-generation run once history recording is correct.
 
 ## 4. Validated core simulator
 
@@ -85,67 +85,62 @@ For `[TFT, TFT, AllD]`:
 
 ## 6. Random initialization and RNG — implemented
 
-`Population(N=...)` now creates `N` independent policies, each with five parameters sampled uniformly from `[0,1]`.
+`Population(N=...)` creates `N` independent policies, each with five parameters sampled uniformly from `[0,1]`.
 
-The policy matrix uses `np.array(...)` and therefore has intended shape `(N, 5)`.
+The policy matrix uses `np.array(...)` and has intended shape `(N, 5)`.
 
-The previous global `np.random.seed(...)` / module-level random calls were replaced by a NumPy `Generator` created with:
+Current stochastic mechanisms use a NumPy `Generator` created with:
 
 `rng = np.random.default_rng(42)`.
 
-Current stochastic mechanisms use this generator for:
+The generator is used for policy initialization, policy action sampling, parent selection, and mutation. This is sufficient for the first exploratory run in a fresh process. A later refinement should make the RNG an explicit run-owned dependency rather than a module-global object, especially for independent multi-seed experiments.
 
-- policy initialization;
-- policy action sampling;
-- parent selection;
-- mutation.
+## 7. Population generation contract
 
-This is sufficient for the first exploratory run in a fresh process. A later refinement should make the RNG an explicit run-owned dependency rather than a module-global object, especially for independent multi-seed experiments.
+`Population.next_generation(game, sigma)` currently performs:
 
-## 7. Population generation contract — cleaned
+`evaluate self.policies -> select parents -> mutate -> return new Population`.
 
-`Population.next_generation(game, sigma)` now evaluates `self.policies`, selects parents from that same population, mutates them, and returns a new `Population`.
+This is conceptually correct for one isolated generation, but history recording must not trigger another evaluation of the same population.
 
-This removes the earlier ambiguity where an externally supplied population could be evaluated while parents were selected from `self.policies`.
+## 8. Critical generation-history invariant
 
-Current conceptual transition:
+Exactly **one stochastic evaluation per generation** must be performed and reused for both:
 
-`P_t -> evaluate P_t -> fitness_t -> select parents from P_t -> mutate -> P_(t+1)`.
+- the statistics recorded in history;
+- the fitness used for parent selection.
 
-## 8. Critical issue before the multi-generation loop: do not evaluate twice
+The attempted use of a custom `@cache` decorator on `Game.evaluate_population` is not appropriate and, as written, breaks the method: the decorator returns `(add, get)`, so the decorated method is replaced by a tuple rather than remaining callable.
 
-The next step is to record one history row per generation. Be careful not to do both:
+Do not solve this with memoization. The clean design is explicit data flow:
 
-1. `population.evaluate(game)` to obtain statistics for history; and then
-2. `population.next_generation(game, sigma)`, which currently evaluates the same population again internally.
+`fitness_t = population.evaluate(game)`
 
-Because policy actions are stochastic, those are two different evaluations and consume different RNG draws. Selection would then use a different fitness realization from the one recorded in history, and the extra evaluation would change the complete future random trajectory.
+then use the same `fitness_t` to:
 
-Before looping, choose one evaluation per generation and reuse that same fitness for both recorded statistics and parent selection.
+1. record `game.statistics` plus the population mean/std;
+2. create the next generation via selection and mutation without re-evaluating.
 
-A clean conceptual generation step is:
+A clean interface is therefore for the generation-transition method to accept the already-computed `fitness`, or to split reproduction from evaluation entirely. Avoid hidden cached stochastic results because they make invalidation and population identity harder to reason about.
 
-`evaluate once -> record statistics/mean/std -> select using that fitness -> mutate -> next population`.
+## 9. Immediate first-run gate
 
-The exact interface is for Jonathan to implement; avoid providing a full core implementation unless requested.
+Before plotting or scaling:
 
-## 9. Small cleanup items
+1. remove the broken cache decorator/helper;
+2. ensure the random population checks are real assertions (`len == N`, shape `(N,5)`, bounds `[0,1]`);
+3. change the generation transition so it consumes already-computed fitness and does not call `evaluate_population` internally;
+4. save one history record per generation containing generation index, mean fitness, cooperation rate, `CC/mixed/DD`, mean policy vector, and policy std vector;
+5. run a small exploratory configuration such as `N=30`, `n_rounds=100`, `generations=50`, `sigma=0.05`, seed `42`;
+6. inspect the trajectory before any multi-seed scientific claim.
 
-- `np.isclose(...)` used as a bare expression does not test anything; wrap it in `assert` when intended as a validation.
-- `Policy.__init__` is annotated with `np.ndarray` but development examples sometimes pass Python lists; align the contract later.
+## 10. Small cleanup items
+
+- `np.isclose(...)` used as a bare expression does not test anything; wrap it in `assert` when intended as validation.
+- `len(population.policies) == 100` and `population._get_matrix().shape == (100,5)` are also discarded booleans unless wrapped in `assert`.
+- `Policy.__init__` is annotated with `np.ndarray` but some examples pass Python lists; align the contract later.
 - `Game.evaluate_population` can use the value returned by `play_game` rather than reading `self.total_score`; this is cleanup, not a scientific blocker.
-- A module-global `rng` is better than the legacy global NumPy random API but is not yet fully isolated run-level RNG ownership.
-
-## 10. Immediate first-run gate
-
-Before scaling or plotting:
-
-1. validate a random `Population(N)` has `N` policies, policy matrix shape `(N,5)`, and all entries in `[0,1]`;
-2. restructure generation execution so each population is evaluated exactly once;
-3. save one history record from that evaluation containing at least generation index, mean fitness, cooperation rate, `CC/mixed/DD`, mean policy vector, and policy std vector;
-4. use a small exploratory configuration such as `N=30`, `n_rounds=100`, `generations=50`, `sigma=0.05`, seed `42`;
-5. inspect the trajectory before any multi-seed scientific claim.
 
 ## 11. Resume instruction
 
-Resume at **generation history and first exploratory run**. Do not revisit Prisoner's Dilemma foundations or already validated evolutionary operators unless a regression appears. Random initialization and a NumPy Generator are now in place. The key next invariant is one stochastic population evaluation per generation, reused for both history and selection.
+Resume at **generation history and first exploratory run**. Remove the attempted cache. Evaluate each population exactly once, reuse that fitness for history and reproduction, then run the first small evolutionary trajectory. Do not revisit Prisoner's Dilemma foundations or already validated operators unless a regression appears.
