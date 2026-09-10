@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-09-10  
 **Project phase:** Stage 0D — EXP-001 population evaluation and evolutionary dynamics  
-**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS IMPLEMENTED, VALIDATION PENDING  
+**Implementation status:** MINIMAL SIMULATOR VALIDATED; POPULATION FITNESS IMPLEMENTED; FITNESS-PROPORTIONAL SELECTION IMPLEMENTED  
 **Previous gate:** COMPLETED — deterministic repeated-game baseline tests passed  
-**Next task:** validate the round-robin population fitness layer, then implement fitness-proportional reproduction
+**Next task:** implement mutation as creation of new offspring policies, then combine evaluation-selection-mutation into one generation
 
 ## 1. Stable project purpose
 
@@ -31,7 +31,7 @@ Socratic questioning should be used where it tests genuinely important concepts,
 **Working title:** Evolutionary Iterated Prisoner's Dilemma  
 **Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
 
-Core conceptual foundations and the minimal repeated-game simulator are complete. Population-level evaluation is now implemented locally and awaiting analytical validation.
+Core conceptual foundations and the minimal repeated-game simulator are complete. The project is now implementing the evolutionary loop in isolated layers.
 
 ## 4. Validated minimal simulator
 
@@ -55,55 +55,89 @@ For a 100-round horizon, the deterministic reference matchups were confirmed exa
 - TFT vs TFT -> `(300, 300)`;
 - TFT vs AllC -> `(300, 300)`.
 
-These results validate the first-round behaviour, payoff mapping, repeated-state transition logic, and player-relative `CD/DC` ordering for the deterministic baselines.
+## 5. Population fitness layer
 
-## 5. Population fitness implementation
+Jonathan implemented round-robin evaluation using a Python list of `Policy` objects.
 
-Jonathan has now implemented the v1 round-robin evaluator using a Python list of `Policy` objects.
+For population size `N`:
 
-Current logic:
-
-1. let `N = len(policies)`;
-2. iterate unordered pairs with `for i in range(N-1)` and `for j in range(i+1, N)`;
-3. run one repeated game for each pair;
-4. add the two resulting scores to the corresponding population indices;
-5. compute fitness as `scores / (num_rounds * (N - 1))`.
-
-This matches the intended v1 definition:
+1. every unordered pair `(i,j)` is evaluated exactly once;
+2. both payoffs from the repeated match are accumulated at their population indices;
+3. fitness is normalized as
 
 `F_i = total_payoff_i / ((N-1) * n_rounds)`.
 
-The implementation still reads each pairwise result from `Game.total_score` after `play_game`; returning the pairwise score directly from `play_game` would be a cleaner contract, but this is not a conceptual blocker for the current milestone.
+Analytical validation targets remain:
 
-Minor type annotations also remain to be cleaned up later (`Policy` construction currently accepts Python lists in examples although annotated as `np.ndarray`; payoff/score return annotations do not exactly match NumPy return types).
+- `[AllC, AllC, AllD]` -> `(1.5, 1.5, 5.0)`;
+- `[TFT, TFT, AllD]` -> `(1.995, 1.995, 1.04)`.
 
-## 6. Immediate validation gate
+The implementation now makes `play_game` return the pairwise total, although `evaluate_population` still reads `self.total_score`; using the returned value directly is a later cleanup, not a conceptual blocker.
 
-Before selection, confirm the population evaluator against analytically known cases for `n = 100`:
+## 6. Fitness-proportional selection
 
-- `[AllC, AllC, AllD]` -> fitness `(1.5, 1.5, 5.0)`;
-- `[TFT, TFT, AllD]` -> fitness `(1.995, 1.995, 1.04)`.
+Jonathan implemented parent sampling with replacement using:
 
-Once both pass, population fitness is considered validated and the next mechanism is fitness-proportional reproduction.
+`q_i = F_i / sum_j(F_j)`
 
-## 7. Next mechanism after validation — selection
+and NumPy weighted sampling to select `N` parents from the current population.
 
-The first selection operator will be fitness-proportional reproduction:
+For the analytical fitness vector `(1.995, 1.995, 1.04)`, the corresponding reproduction probabilities are approximately:
 
-`P(parent = i) = F_i / sum_j(F_j)`.
+`(0.3966, 0.3966, 0.2068)`.
 
-Parents will be sampled with replacement to form a new population of the same size. Mutation is a separate subsequent step; do not combine selection and mutation until parent sampling is independently understood and tested.
+This selection operator intentionally permits:
+
+- the same parent to be chosen multiple times;
+- lower-fitness parents to reproduce occasionally;
+- some parents to leave no descendants in a generation.
+
+### Important object-identity invariant for the next step
+
+The selected parents are references to existing `Policy` objects. Mutation must **not** alter selected parent objects or their `probabilities` arrays in place.
+
+Each offspring must be a newly constructed `Policy` whose parameters are derived from the selected parent's parameters. This prevents:
+
+- mutating the previous generation retroactively;
+- two offspring selected from the same parent unintentionally sharing a mutable parameter array;
+- one child's mutation modifying a sibling or parent.
+
+## 7. Next mechanism — mutation
+
+Implement mutation separately before constructing full generations.
+
+Candidate v1 mechanism:
+
+`pi_child = clip(pi_parent + epsilon, 0, 1)`
+
+with independent parameter perturbations
+
+`epsilon_k ~ Normal(0, sigma^2)`.
+
+Initial design value remains `sigma = 0.05`, subject to later sensitivity analysis.
+
+Mutation should:
+
+- operate on all five policy parameters;
+- return a **new** `Policy`;
+- leave the parent unchanged;
+- keep every parameter in `[0,1]`;
+- use clipping for the first implementation;
+- later expose/measure clipping frequency because clipping may bias the boundaries.
+
+Before population evolution, test mutation invariants independently.
 
 ## 8. Still outstanding
 
-- confirm the two analytical population-fitness cases above;
-- implement selection / parent sampling;
-- implement mutation;
+- explicitly confirm the analytical population-fitness outputs if not already recorded;
+- implement and validate mutation;
 - combine evaluation, selection, and mutation into generations;
-- add reproducible random-number handling before stochastic experiments;
-- align type annotations and improve `play_game` return contract;
+- initialize a genuinely random population in `[0,1]^5`;
+- add reproducible random-number handling before scientific runs;
+- define and record generation-level metrics;
+- align minor type annotations and remove unnecessary hidden state later;
 - no evolutionary experiment has been run yet.
 
 ## 9. Resume instruction
 
-Resume by validating the current population evaluator against the two analytical populations. If both pass, do not revisit the simulator or Prisoner's Dilemma foundations; move directly to fitness-proportional selection, then mutation, then generation dynamics.
+Resume at **mutation**. Do not revisit basic Prisoner's Dilemma theory or the deterministic simulator unless a regression appears. Parent sampling is already implemented. The next conceptual/programming invariant is that offspring are new objects derived from parent genotypes, not in-place mutations of parent references. After mutation is validated, build a single generation step and only then loop over generations.
