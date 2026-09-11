@@ -1,177 +1,205 @@
 # CURRENT_STATE.md
 
-**Last updated:** 2026-09-10  
+**Last updated:** 2026-09-11  
 **Project phase:** Stage 0G — EXP-001 exploratory evolutionary dynamics  
-**Implementation status:** CORE SIMULATOR, POPULATION FITNESS, SELECTION, MUTATION, GENERATION TRANSITION, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, RANDOM INITIALIZATION, EXPLICIT NUMPY GENERATOR AND ALIGNED EXPERIMENT HISTORY IMPLEMENTED; FIRST EXPLORATORY TRAJECTORY COMPLETED  
-**Previous gate:** COMPLETED — each generation is evaluated exactly once and the same fitness is reused for history and reproduction  
-**Next task:** remove redundant `Game.history`, add an explicit reciprocity/conditional-response observable, then run a longer exploratory trajectory before any multi-seed claim
+**Implementation status:** CORE SIMULATOR, FITNESS, SELECTION, MUTATION, RANDOM INITIALIZATION, EXPLICIT NUMPY GENERATOR, ALIGNED HISTORY, BEHAVIOURAL OBSERVABLES AND POLICY MEAN/STD IMPLEMENTED; 10-GENERATION AND 50-GENERATION EXPLORATORY RUNS COMPLETED  
+**Previous gate:** COMPLETED — first longer exploratory trajectory analysed mechanistically  
+**Next task:** separate opponent-response from own-action persistence in observables, clean redundant history state, then prepare efficient multi-seed runs
 
 ## 1. Stable project purpose
 
 The repository is the authoritative memory of the Artificial Intelligence Research Lab.
 
-Jonathan's long-term objective is to develop scientific and technical independence in AI: recognise which mechanisms may address a new problem, explain why they work, reproduce and critique research, adapt methods across domains, and eventually design original experiments, systems, techniques, or hypotheses.
+Jonathan's long-term objective is to develop scientific and technical independence in AI: recognise mechanisms, derive and reproduce them, critique experiments, and eventually design original techniques, systems, or hypotheses.
 
-The laboratory is domain-general. Finance may provide future applications, but it is not the organising principle.
+The pedagogical sequence remains:
 
-`PROJECT_CHARTER.md` v0.2 and `LEARNING_CONTRACT.md` v0.2 were explicitly ratified by Jonathan on 2026-09-06.
+`problem -> intuition -> formal model -> derivation -> algorithm -> design -> Jonathan implements -> assistant reviews -> experiment -> documentation`.
 
-## 2. Pedagogical invariant
+## 2. Active experiment
 
-The expected working sequence remains:
+**EXP-001 — Evolutionary Iterated Prisoner's Dilemma**  
+Detailed experiment record: `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`.
 
-`problem -> intuition -> formal model -> derivation -> algorithm -> design -> Jonathan implements -> assistant reviews -> experiment -> documentation`
+Research question: can reciprocal cooperation emerge and persist under population-based evolutionary selection over stochastic memory-one policies, and what dynamics do the chosen horizon and evolutionary operators generate?
 
-The assistant should not default to complete generated implementations for core learning mechanisms. AI should amplify Jonathan's reasoning and programming capability, not replace it.
+Implemented policy:
 
-Use Socratic questions only for important conceptual distinctions; avoid endless micro-questions and keep application progress visible.
+`pi = (p0, p_CC, p_CD, p_DC, p_DD)`.
 
-## 3. Active experiment — EXP-001
+Self action is written first in `CC, CD, DC, DD`.
 
-**Working title:** Evolutionary Iterated Prisoner's Dilemma  
-**Experiment document:** `docs/03_experiments/EXP-001_EVOLUTIONARY_IPD.md`
+## 3. Implemented v1 design
 
-The repeated-game simulator and first complete population-evolution experiment loop are now operational. The project has produced its first multi-generation exploratory trajectory from a genuinely random stochastic memory-one population.
+- payoffs: `T=5, R=3, P=1, S=0`;
+- fixed match horizon: `n_rounds=100`;
+- full round-robin population evaluation, one match per unordered pair;
+- fitness: `F_i = total_payoff_i / ((N-1)*n_rounds)`;
+- fitness-proportional parent selection with replacement;
+- Gaussian mutation on all five policy components;
+- clipping to `[0,1]`;
+- exploratory mutation scale `sigma=0.05`;
+- random initial populations sampled independently from `Uniform(0,1)^5`;
+- NumPy `Generator` seeded with `42` currently drives all stochastic mechanisms.
 
-## 4. Validated core simulator and evolutionary operators
+Exactly one stochastic evaluation is performed per generation. The same fitness vector is recorded and reused for selection.
 
-A stochastic memory-one `Policy` is represented by `(p0, p_CC, p_CD, p_DC, p_DD)` and uses stochastic action sampling with player-relative previous states.
+## 4. Validated baselines
 
-For a 100-round horizon, deterministic reference matchups were confirmed exactly:
+For 100-round deterministic matches:
 
-- AllC vs AllC -> `(300, 300)`;
-- AllD vs AllC -> `(500, 0)`;
-- AllD vs AllD -> `(100, 100)`;
-- TFT vs AllD -> `(99, 104)`;
-- TFT vs TFT -> `(300, 300)`;
-- TFT vs AllC -> `(300, 300)`.
+- AllC vs AllC -> `(300,300)`;
+- AllD vs AllC -> `(500,0)`;
+- AllD vs AllD -> `(100,100)`;
+- TFT vs AllD -> `(99,104)`;
+- TFT vs TFT -> `(300,300)`;
+- TFT vs AllC -> `(300,300)`.
 
-Population fitness uses one round-robin match per unordered pair:
+Population instrumentation was also validated analytically on `[TFT,TFT,AllD]`.
 
-`F_i = total_payoff_i / ((N-1) * n_rounds)`.
+## 5. Recorded observables
 
-Fitness-proportional selection is `q_i = F_i / sum(F)` with replacement.
-
-Mutation is Gaussian and bounded:
-
-`pi_child = clip(pi_parent + epsilon, 0, 1)`, with `epsilon_k ~ Normal(0, sigma^2)`.
-
-The provisional mutation scale remains `sigma = 0.05`.
-
-## 5. Behavioural and policy-space observability
-
-Population evaluation records:
+Per generation:
 
 - mean fitness;
-- cooperation and defection rates;
-- symmetric joint-outcome rates `CC`, `mixed = CD + DC`, and `DD`.
+- cooperation / defection rate;
+- `CC`, `mixed=CD+DC`, `DD` rates;
+- mean policy vector;
+- policy-parameter standard deviations.
 
-The `Population` abstraction reports the column-wise mean and standard deviation of its `N x 5` policy matrix.
+The next observability refinement must distinguish:
 
-The deterministic `[TFT, TFT, AllD]` instrumentation check matched analytical values exactly.
+`R_opp = ((p_CC+p_DC) - (p_CD+p_DD))/2`
 
-## 6. Random initialization and RNG
+from:
 
-`Population(N=...)` creates `N` independent random policies with five parameters sampled uniformly from `[0,1]`.
+`R_self = ((p_CC+p_CD) - (p_DC+p_DD))/2`.
 
-All current stochastic mechanisms use a NumPy `Generator` created with `np.random.default_rng(42)` for initialization, action sampling, selection, and mutation.
+`R_opp` measures average response to the opponent's previous action. `R_self` measures persistence of the agent's own previous action. A positive `R_opp` alone must not be labelled full reciprocity.
 
-The generator is still module-global. This is acceptable for the current exploratory stage, but multi-seed experiments should make the RNG an explicit run-owned dependency.
+## 6. Exploratory run A
 
-## 7. Generation-history contract — fixed
+Configuration: `N=100`, `G=10`, `n_rounds=100`, `sigma=0.05`, seed `42`.
 
-The experiment loop now performs exactly one stochastic evaluation per generation:
+Generation 0 -> 9:
 
-1. `fitness_t = population.evaluate(game)`;
-2. read `game.statistics` from that evaluation;
-3. compute mean/std from that same `population`;
-4. append one explicit dict record to experiment-level `history`;
-5. produce `P_(t+1)` using `population.next_generation(fitness_t, sigma)`.
+- mean fitness `2.2228 -> 1.8075`;
+- cooperation `0.4868 -> 0.3040`;
+- `DD_rate 0.2640 -> 0.4965`.
 
-Therefore:
+This established that aggregate cooperation could fall rapidly under the implemented evolutionary process.
 
-`fitness recorded in history == fitness used for selection`.
+## 7. Exploratory run B — longer baseline
 
-Behavioural statistics and policy-space statistics in each history row refer to the same `P_t`.
+Configuration: `N=30`, `G=50`, `n_rounds=100`, `sigma=0.05`, seed `42`.
 
-## 8. First exploratory trajectory — completed
+This run executes `435` pairwise matches and `43,500` game rounds per generation, `2,175,000` game rounds total.
 
-Jonathan ran an initial trajectory with:
+Generation 0:
 
-- population size `N = 100`;
-- fixed match horizon `n_rounds = 100`;
-- generations `G = 10`;
-- mutation scale `sigma = 0.05`;
-- RNG seed `42`.
+- mean fitness `2.1965`;
+- cooperation `0.4734`;
+- `CC=0.2237`, `mixed=0.4994`, `DD=0.2769`;
+- mean policy approximately `(0.489,0.533,0.501,0.436,0.467)`.
 
-This is an exploratory implementation/science check, not a basis for general conclusions.
+Generation 49:
 
-Observed generation 0 -> generation 9 changes included:
+- mean fitness `1.4174`;
+- cooperation `0.1518`;
+- `CC=0.0380`, `mixed=0.2275`, `DD=0.7344`;
+- mean policy approximately `(0.269,0.568,0.406,0.233,0.090)`;
+- standard deviations approximately `(0.099,0.155,0.109,0.130,0.088)`.
 
-- mean fitness: `2.2228 -> 1.8075`;
-- cooperation rate: `0.4868 -> 0.3040`;
-- `CC_rate`: `0.2376 -> 0.1045`;
-- `mixed_rate`: `0.4985 -> 0.3990`;
-- `DD_rate`: `0.2640 -> 0.4965`.
+The run therefore ends in a strongly defection-dominated regime.
 
-Thus aggregate cooperation decreased substantially during this short run while mutual defection increased.
+## 8. Regime change observed
 
-Mean policy vector changed from approximately:
+The 50-generation trajectory is not a smooth move toward AllD or TFT.
 
-`(0.5277, 0.5122, 0.5152, 0.4308, 0.4925)`
+### Roughly generations 6–20
 
-to:
+`p_DD` becomes very high while `p_DC` becomes very low. Around generation 19:
 
-`(0.5594, 0.4718, 0.3185, 0.4031, 0.2617)`.
+`(p_CC,p_CD,p_DC,p_DD) ≈ (0.261,0.283,0.114,0.825)`.
 
-The strongest directional changes were decreases in `p_CD` and `p_DD`, while `p_CC` and `p_DC` decreased much less.
+This implies an unusual mutual-state dynamic: after `DD`, cooperation becomes likely; after `CC`, defection becomes comparatively likely. It is better described as anti-persistent / alternating structure than reciprocity.
 
-## 9. Preliminary reciprocity-like signal
+### Roughly generations 30–49
 
-For a self-first memory-one state representation, the opponent cooperated previously in states `CC` and `DC`, and defected previously in states `CD` and `DD`.
+`p_CC` rises and `p_DD` collapses. At generation 49:
 
-A simple conditional-response / reciprocity index is therefore:
+`p0≈0.269`, `p_CC≈0.568`, `p_CD≈0.406`, `p_DC≈0.233`, `p_DD≈0.090`.
 
-`R = ((p_CC + p_DC) - (p_CD + p_DD)) / 2`.
+Under a mean-policy approximation:
 
-Interpretation:
+- a fresh symmetric match starts in `DD` with probability `(1-p0)^2 ≈ 0.534`;
+- once in `DD`, it stays in `DD` next round with probability `(1-p_DD)^2 ≈ 0.829`.
 
-- `R > 0`: greater willingness to cooperate after opponent cooperation than after opponent defection;
-- `R = 0`: no average discrimination based on opponent's previous action;
-- `R < 0`: reverse conditionality.
+This explains why high `p_CC` does not rescue aggregate cooperation: many matches enter defection early and become trapped there.
 
-Using the population mean parameters from the first run:
+The stationary self-play approximation of the generation-49 mean policy predicts cooperation around `0.167`, close to the observed `0.152`; this is diagnostic only because the true population remains heterogeneous.
 
-- generation 0: `R ≈ -0.0323`;
-- generation 9: `R ≈ +0.1473`.
+## 9. Key conceptual correction
 
-Across the ten recorded generations this index was approximately:
+The late population is **not TFT-like**.
 
-`[-0.0323, 0.0036, -0.0202, 0.0515, 0.0896, 0.1239, 0.0756, 0.0921, 0.1458, 0.1473]`.
+At generation 49:
 
-This is an interesting exploratory signal: aggregate cooperation fell, but the mean policy became more conditionally responsive to whether the opponent had cooperated or defected. Do **not** yet call this emergence of reciprocal cooperation. The population remains heterogeneous, the run is short, and only one seed has been observed. The signal should become an explicit observable and then be tested over longer and multi-seed runs.
+- opponent-action effect `R_opp ≈ +0.153`;
+- own-action persistence effect `R_self ≈ +0.326`.
 
-## 10. Remaining cleanup
+The stronger signal is therefore persistence / path dependence on the agent's own previous action, not pure opponent reciprocity.
 
-`Game` still contains an internal `history` list and `_get_stats()` that is automatically called by `evaluate_population()`. This no longer causes the double-evaluation bug and does not affect the RNG, but it is redundant because experiment-level `history` is now the authoritative trajectory record. Remove it to avoid two history stores and future confusion.
+TFT would require approximately `(1,1,0,1,0)`. The late mean instead has low `p_DC` and moderate `p_CD`, which violates a central TFT asymmetry.
 
-Other non-blocking cleanup:
+Do not describe EXP-001 as having discovered TFT or established reciprocal cooperation.
 
-- make `experiment()` either require explicit `population`/`game` arguments or restore safe creation when they are `None`;
-- lower the default generation count from `1000` for exploratory use or require it explicitly;
-- align `Policy.__init__` typing with accepted array-like inputs;
-- eventually make RNG ownership explicit per experimental run;
-- later record clipping frequency during mutation.
+## 10. Scientific interpretation so far
 
-## 11. Immediate next gate
+For this seed and configuration:
 
-1. remove redundant `Game.history` / `_get_stats()`;
-2. add the reciprocity index `R` to each generation history row;
-3. keep cooperation rate and mean/std policy observables;
-4. run a longer exploratory trajectory, e.g. `N=30`, `n_rounds=100`, `G=50`, `sigma=0.05`, seed `42`, or retain `N=100` if runtime is acceptable;
-5. inspect whether reciprocity-like conditionality persists, collapses, or coexists with low aggregate cooperation;
-6. only after understanding one longer trajectory move to multiple independent seeds.
+- selection does not maximize mean population fitness;
+- cooperation can collapse while conditional policy structure becomes stronger;
+- behaviour and policy mechanism evolve on different trajectories;
+- own-action history can matter more than opponent history;
+- regime transitions can occur within one evolutionary run;
+- aggregate cooperation alone is insufficient to classify the evolved mechanism.
 
-## 12. Resume instruction
+All of these remain exploratory observations from one seed.
 
-Resume at **analysis of the first evolutionary dynamics and explicit reciprocity observability**. The experiment loop is now structurally correct. Do not revisit basic game theory or evolutionary operators unless a regression appears. The next scientific question is not merely whether cooperation rises, but whether selection is producing stable conditional/reciprocal response structure and under what conditions.
+## 11. Runtime / implementation note
+
+The simulator is slow because game execution remains Python-loop heavy. Runtime scales as:
+
+`G * N(N-1)/2 * n_rounds`.
+
+Safe optimizations before multi-seed work:
+
+- move the payoff table out of the per-round `payoff()` reconstruction path;
+- avoid creating a temporary NumPy action array merely to form `CC/CD/DC/DD`;
+- consider `rng.random() < p` for binary Bernoulli actions instead of `rng.choice`.
+
+These preserve the probabilistic model but can change the exact random-number stream, so the current baseline results must be retained.
+
+## 12. Remaining cleanup
+
+- remove redundant internal `Game.history` / `_get_stats()` if still present;
+- make experiment arguments explicit rather than relying on unsafe `None` defaults;
+- add `R_opp` and `R_self` to history rows;
+- eventually add an interaction term for the 2x2 memory-one response table;
+- make RNG ownership explicit per run;
+- record mutation clipping frequency later;
+- consider repeated pair matches or another method to quantify stochastic fitness noise.
+
+## 13. Immediate next gate
+
+1. clean redundant history state;
+2. instrument `R_opp` and `R_self` explicitly;
+3. make the obvious inner-loop performance improvements;
+4. preserve the 50-generation seed-42 trajectory as the baseline;
+5. then repeat the same configuration across multiple independent seeds;
+6. only after that assess whether defection trapping, regime transitions, or opponent-responsive behaviour are reproducible.
+
+## 14. Resume instruction
+
+Resume at **conditional-response decomposition, performance cleanup, and preparation for multi-seed replication**. Do not revisit basic Prisoner's Dilemma foundations or already validated evolutionary operators unless a regression appears.
