@@ -1,10 +1,10 @@
 # CURRENT_STATE.md
 
 **Last updated:** 2026-09-11  
-**Project phase:** Stage 0H — EXP-001 multi-seed replication preparation  
+**Project phase:** Stage 0H — EXP-001 multi-seed trajectory analysis  
 **Implementation status:** CORE SIMULATOR, FITNESS, SELECTION, MUTATION, RANDOM INITIALIZATION, RUN-OWNED RNG, ALIGNED HISTORY, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, CONDITIONAL-RESPONSE OBSERVABLES AND FIRST PERFORMANCE CLEANUPS IMPLEMENTED  
-**Previous gate:** COMPLETED — reproducibility and independent-seed plumbing validated  
-**Next task:** run the first 50-generation multi-seed replication and persist run configurations/results in a stable format
+**Previous gate:** COMPLETED — first five-seed, 50-generation replication batch executed  
+**Next task:** diagnose cross-seed trajectory structure using cooperation, fitness, DD, conditional-response indices, and mean-policy parameters
 
 ## 1. Stable project purpose
 
@@ -83,15 +83,13 @@ Generation 0 -> 49:
 
 The trajectory contains a regime change rather than a smooth move to AllD or TFT. Around generation 19 the mean policy has high `p_DD` and low `p_DC`, producing anti-persistent/alternating structure. By generation 49, low `p0` and very low `p_DD` create a strong defection trap: many matches enter `DD` early and then remain there.
 
-The late population is not TFT-like. Own-action persistence is stronger than opponent responsiveness.
-
-All of this remains a single-seed exploratory observation until replication.
+The late population is not TFT-like. Own-action persistence is stronger than opponent responsiveness for this seed.
 
 ## 7. Run-owned RNG — validated
 
 The module-global RNG has been removed.
 
-`experiment(seed, ...)` now creates a fresh `np.random.default_rng(seed)` and explicitly passes that same run-owned generator through every stochastic mechanism:
+`experiment(seed, ...)` creates a fresh `np.random.default_rng(seed)` and explicitly passes that same run-owned generator through:
 
 - initial population generation;
 - stochastic policy actions;
@@ -100,17 +98,16 @@ The module-global RNG has been removed.
 
 `Policy` and `Population` do not hide RNG state as object attributes.
 
-Reproducibility test completed:
+Reproducibility test:
 
-- run A, seed `42`;
-- run B, seed `42`;
-- run C, seed `43`.
+- seed `42` repeated twice produced identical generation-by-generation histories;
+- seed `43` differed already at generation 0.
 
-A and B were identical generation-by-generation, while C differed already at generation 0. Therefore the experiment now satisfies the intended computational invariant:
+Invariant validated:
 
 `same code + same configuration + same seed -> same trajectory`.
 
-## 8. Multi-seed runner — plumbing validated
+## 8. Multi-seed runner — implemented
 
 `experiment()` now returns run configuration separately from generation history.
 
@@ -122,11 +119,47 @@ Current run configuration contains:
 - number of rounds;
 - mutation sigma.
 
-A five-run smoke test was executed with seeds `42,43,44,45,46`, `N=30`, `G=5`, `n_rounds=100`, `sigma=0.05`.
+The runner stores multiple runs as a collection of `configuration + history` records.
 
-The runner successfully produced distinct histories while preserving each run's configuration. The short trajectories already show substantial stochastic variation: for example seed 43 moved toward lower cooperation over five generations, while seed 44 moved toward higher cooperation. This is a plumbing/variability check only, not a scientific conclusion because `G=5` is too short.
+## 9. First 50-generation replication batch
 
-## 9. Runtime / implementation status
+Configuration held fixed across runs:
+
+- `N=30`;
+- `G=50`;
+- `n_rounds=100`;
+- `sigma=0.05`;
+- seeds `42,43,44,45,46`.
+
+Generation-49 endpoints:
+
+| seed | cooperation | R_opp | R_self |
+| ---: | ---: | ---: | ---: |
+| 42 | 0.1518 | 0.1526 | 0.3261 |
+| 43 | 0.0931 | 0.1316 | 0.0345 |
+| 44 | 0.1006 | 0.1036 | 0.1519 |
+| 45 | 0.2515 | 0.4715 | 0.2619 |
+| 46 | 0.4509 | 0.1659 | 0.1783 |
+
+The endpoints show substantial cross-seed variation. `R_self > R_opp` is not universal, so the seed-42 late-state interpretation cannot be generalized to all runs.
+
+All five final `R_opp` and `R_self` values are positive in this first batch, but five seeds are insufficient to establish that as a reproducible population-level result.
+
+## 10. First cooperation trajectory comparison
+
+A `seed x generation` cooperation matrix was constructed and visualized for all five runs.
+
+The trajectories are strongly non-monotonic and diverge qualitatively despite similar random-initialization cooperation levels near 0.5:
+
+- seed 44 rises above 0.6 very early and then progressively collapses to about 0.10;
+- seed 43 drops comparatively early and remains mostly in a low-cooperation regime, ending near 0.09;
+- seed 42 declines more gradually, shows a partial recovery around the late 30s, then collapses to about 0.15;
+- seed 45 shows several reversals and ends around 0.25;
+- seed 46 first declines into a roughly 0.3-0.35 regime, then undergoes a strong late recovery around generations 34-41, peaking near 0.6 and ending around 0.45.
+
+Therefore endpoint averages would hide important path dependence and apparent regime transitions. These trajectories suggest, but do not yet prove, multiple metastable basins or attractors in the evolutionary dynamics.
+
+## 11. Runtime / implementation status
 
 Safe performance cleanups implemented:
 
@@ -140,7 +173,7 @@ Runtime still scales approximately as:
 
 `G * N(N-1)/2 * n_rounds`.
 
-## 10. Remaining cleanup
+## 12. Remaining cleanup
 
 Non-blocking code-contract cleanup:
 
@@ -152,19 +185,20 @@ Non-blocking code-contract cleanup:
 Methodological work:
 
 - persist configuration and history in a stable serializable format; NumPy arrays/scalars need conversion before JSON serialization;
+- compare full trajectories for `fitness_average`, `DD_rate`, `R_opp`, `R_self`, and the five mean-policy parameters;
+- diagnose what policy-parameter changes accompany seed 46's late cooperation recovery and seed 44's collapse;
 - add an interaction term for the 2x2 memory-one response table only if scientifically useful;
 - record mutation clipping frequency later;
 - quantify stochastic fitness noise later via repeated matches, longer horizons, or uncertainty analysis.
 
-## 11. Immediate next gate
+## 13. Immediate next gate
 
-1. keep `N=30`, `n_rounds=100`, `sigma=0.05` fixed;
-2. run at least five independent seeds for `G=50` as the first replication batch;
-3. preserve each run's configuration and complete trajectory;
-4. compare cooperation, fitness, `R_opp`, `R_self`, and the five mean policy parameters across seeds;
-5. distinguish common tendencies from seed-specific regime histories;
-6. do not infer reproducibility from endpoints alone — inspect trajectories and cross-seed dispersion.
+1. plot `R_opp` and `R_self` trajectories across the five seeds;
+2. inspect mean-policy parameter trajectories, especially seeds 44 and 46;
+3. compare those mechanism-level trajectories against cooperation and `DD_rate`;
+4. only after mechanism-level diagnosis compute cross-seed summaries such as means, dispersion, or quantiles;
+5. avoid claiming stable attractors or reproducibility from five runs alone.
 
-## 12. Resume instruction
+## 14. Resume instruction
 
-Resume at **first 50-generation multi-seed replication and result persistence/analysis**. RNG ownership and reproducibility are validated. Do not revisit basic Prisoner's Dilemma foundations or RNG plumbing unless a regression appears.
+Resume at **mechanism-level cross-seed trajectory diagnosis**. First five-seed 50-generation cooperation trajectories are available and show strong path dependence / non-monotonicity. Do not revisit RNG plumbing or basic Prisoner's Dilemma foundations unless a regression appears.
