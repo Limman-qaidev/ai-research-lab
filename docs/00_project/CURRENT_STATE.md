@@ -3,8 +3,8 @@
 **Last updated:** 2026-09-11  
 **Project phase:** Stage 0H — EXP-001 multi-seed trajectory analysis  
 **Implementation status:** CORE SIMULATOR, FITNESS, SELECTION, MUTATION, RANDOM INITIALIZATION, RUN-OWNED RNG, ALIGNED HISTORY, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, CONDITIONAL-RESPONSE OBSERVABLES AND FIRST PERFORMANCE CLEANUPS IMPLEMENTED  
-**Previous gate:** COMPLETED — first five-seed, 50-generation replication batch executed  
-**Next task:** diagnose cross-seed trajectory structure using cooperation, fitness, DD, conditional-response indices, and mean-policy parameters
+**Previous gate:** COMPLETED — first five-seed cooperation and conditional-response trajectory comparison  
+**Next task:** decompose the mean memory-one policy into baseline level, self/opponent effects and interaction, then relate those components to behaviour and state occupancy
 
 ## 1. Stable project purpose
 
@@ -109,7 +109,7 @@ Invariant validated:
 
 ## 8. Multi-seed runner — implemented
 
-`experiment()` now returns run configuration separately from generation history.
+`experiment()` returns run configuration separately from generation history.
 
 Current run configuration contains:
 
@@ -145,7 +145,7 @@ The endpoints show substantial cross-seed variation. `R_self > R_opp` is not uni
 
 All five final `R_opp` and `R_self` values are positive in this first batch, but five seeds are insufficient to establish that as a reproducible population-level result.
 
-## 10. First cooperation trajectory comparison
+## 10. Cooperation trajectory comparison
 
 A `seed x generation` cooperation matrix was constructed and visualized for all five runs.
 
@@ -157,9 +157,34 @@ The trajectories are strongly non-monotonic and diverge qualitatively despite si
 - seed 45 shows several reversals and ends around 0.25;
 - seed 46 first declines into a roughly 0.3-0.35 regime, then undergoes a strong late recovery around generations 34-41, peaking near 0.6 and ending around 0.45.
 
-Therefore endpoint averages would hide important path dependence and apparent regime transitions. These trajectories suggest, but do not yet prove, multiple metastable basins or attractors in the evolutionary dynamics.
+Endpoint averages therefore hide important path dependence and apparent regime transitions. These trajectories suggest, but do not prove, multiple metastable regions in the evolutionary dynamics.
 
-## 11. Runtime / implementation status
+## 11. Conditional-response trajectory comparison
+
+`R_opp` and `R_self` were plotted across all five seeds and compared with cooperation.
+
+Important observations:
+
+- seed 42 moves from strongly negative `R_opp` / negative `R_self` in its middle phase to positive values later, while cooperation still collapses; therefore positive conditional-response indices are not sufficient for high cooperation;
+- seed 44 reaches cooperation above 0.6 while `R_opp` and `R_self` are only modest, then later loses cooperation while conditional structure remains positive;
+- seed 45 develops the strongest final opponent-response signal (`R_opp≈0.47`) but ends with only moderate cooperation (`≈0.25`);
+- seed 46's late cooperation recovery coincides with `R_self` moving from near-zero/negative values to clearly positive values, while `R_opp` is already positive and changes more modestly; this is suggestive but not causal evidence.
+
+The comparison establishes that `R_opp` and `R_self` measure **contrasts** in the conditional policy, not its overall cooperation level. They cannot by themselves explain observed cooperation.
+
+For the four conditional probabilities define the grand mean
+
+`mu = (p_CC + p_CD + p_DC + p_DD)/4`
+
+and interaction contrast
+
+`I = p_CC - p_CD - p_DC + p_DD`.
+
+Together, `(mu, R_self, R_opp, I)` form a complete linear reparameterization of `(p_CC,p_CD,p_DC,p_DD)`. `p0` remains a separate first-round parameter.
+
+Observed cooperation additionally depends on **state occupancy**: conditional probabilities are weighted by how often `CC,CD,DC,DD` are actually visited. Thus similar response contrasts can produce very different aggregate behaviour.
+
+## 12. Runtime / implementation status
 
 Safe performance cleanups implemented:
 
@@ -173,7 +198,7 @@ Runtime still scales approximately as:
 
 `G * N(N-1)/2 * n_rounds`.
 
-## 12. Remaining cleanup
+## 13. Remaining cleanup / methodological work
 
 Non-blocking code-contract cleanup:
 
@@ -185,20 +210,20 @@ Non-blocking code-contract cleanup:
 Methodological work:
 
 - persist configuration and history in a stable serializable format; NumPy arrays/scalars need conversion before JSON serialization;
-- compare full trajectories for `fitness_average`, `DD_rate`, `R_opp`, `R_self`, and the five mean-policy parameters;
-- diagnose what policy-parameter changes accompany seed 46's late cooperation recovery and seed 44's collapse;
-- add an interaction term for the 2x2 memory-one response table only if scientifically useful;
+- compute and plot `p0`, `mu`, and interaction `I` across seeds;
+- inspect raw mean-policy parameter trajectories where needed, especially seeds 44 and 46;
+- compare policy decomposition against `CC/CD/DC/DD` state occupancy;
 - record mutation clipping frequency later;
 - quantify stochastic fitness noise later via repeated matches, longer horizons, or uncertainty analysis.
 
-## 13. Immediate next gate
+## 14. Immediate next gate
 
-1. plot `R_opp` and `R_self` trajectories across the five seeds;
-2. inspect mean-policy parameter trajectories, especially seeds 44 and 46;
-3. compare those mechanism-level trajectories against cooperation and `DD_rate`;
-4. only after mechanism-level diagnosis compute cross-seed summaries such as means, dispersion, or quantiles;
-5. avoid claiming stable attractors or reproducibility from five runs alone.
+1. derive and implement `mu` and interaction contrast `I` from the mean policy;
+2. plot `p0`, `mu`, and `I` across the five seeds;
+3. compare those trajectories with cooperation and `DD_rate`, especially seed 44's collapse and seed 46's late recovery;
+4. use the existing state-rate observables to test whether behaviour changes are driven by policy level, conditional structure, state occupancy, or combinations of them;
+5. only after mechanism-level diagnosis compute cross-seed summaries such as means, dispersion, or quantiles.
 
-## 14. Resume instruction
+## 15. Resume instruction
 
-Resume at **mechanism-level cross-seed trajectory diagnosis**. First five-seed 50-generation cooperation trajectories are available and show strong path dependence / non-monotonicity. Do not revisit RNG plumbing or basic Prisoner's Dilemma foundations unless a regression appears.
+Resume at **complete memory-one policy decomposition and state-occupancy diagnosis**. Cooperation, `R_opp`, and `R_self` trajectories for seeds 42-46 are available. Do not infer cooperation directly from response indices: they are contrasts, not levels, and behaviour also depends on state occupancy.
