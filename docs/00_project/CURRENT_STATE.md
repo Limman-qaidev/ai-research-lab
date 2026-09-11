@@ -1,10 +1,10 @@
 # CURRENT_STATE.md
 
 **Last updated:** 2026-09-11  
-**Project phase:** Stage 0G — EXP-001 exploratory evolutionary dynamics  
-**Implementation status:** CORE SIMULATOR, FITNESS, SELECTION, MUTATION, RANDOM INITIALIZATION, EXPLICIT NUMPY GENERATOR, ALIGNED HISTORY, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, CONDITIONAL-RESPONSE OBSERVABLES AND FIRST INNER-LOOP PERFORMANCE CLEANUP IMPLEMENTED; 10-GENERATION AND 50-GENERATION EXPLORATORY RUNS COMPLETED  
-**Previous gate:** COMPLETED — `R_opp` and `R_self` are now recorded from the mean policy vector, and Bernoulli action sampling / static payoff lookup are implemented  
-**Next task:** make RNG ownership explicit per run and prepare multi-seed replication of the 50-generation baseline
+**Project phase:** Stage 0H — EXP-001 reproducible multi-seed preparation  
+**Implementation status:** CORE SIMULATOR, FITNESS, SELECTION, MUTATION, RANDOM INITIALIZATION, RUN-OWNED NUMPY GENERATOR, ALIGNED HISTORY, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, CONDITIONAL-RESPONSE OBSERVABLES AND FIRST INNER-LOOP PERFORMANCE CLEANUP IMPLEMENTED; REPRODUCIBILITY GATE PASSED  
+**Previous gate:** COMPLETED — same-seed runs reproduce exactly and different seeds diverge from generation 0  
+**Next task:** persist run configuration alongside history, then build the first small multi-seed replication runner
 
 ## 1. Stable project purpose
 
@@ -40,7 +40,7 @@ Self action is written first in `CC, CD, DC, DD`.
 - clipping to `[0,1]`;
 - exploratory mutation scale `sigma=0.05`;
 - random initial populations sampled independently from `Uniform(0,1)^5`;
-- NumPy `Generator` seeded with `42` currently drives all stochastic mechanisms.
+- NumPy `Generator` is now created inside each experimental run from that run's explicit seed and passed explicitly through initialization, action sampling, selection, and mutation.
 
 Exactly one stochastic evaluation is performed per generation. The same fitness vector is recorded and reused for selection.
 
@@ -59,7 +59,7 @@ Population instrumentation was also validated analytically on `[TFT,TFT,AllD]`.
 
 ## 5. Recorded observables
 
-Per generation the experiment now records:
+Per generation the experiment records:
 
 - mean fitness;
 - cooperation / defection rate;
@@ -71,7 +71,7 @@ Per generation the experiment now records:
 - own-action persistence index
   `R_self = ((p_CC+p_CD) - (p_DC+p_DD))/2`.
 
-Both `R_opp` and `R_self` are computed from the **mean policy vector**, not from observed state frequencies. Because these indices are linear in the policy parameters, computing them from the mean policy is equivalent to averaging the same index over individuals.
+Both `R_opp` and `R_self` are computed from the mean policy vector. Because these indices are linear in the policy parameters, computing them from the mean policy is equivalent to averaging the same index over individuals.
 
 `R_opp` measures average response to the opponent's previous action. `R_self` measures persistence of the agent's own previous action. A positive `R_opp` alone must not be labelled full reciprocity.
 
@@ -90,8 +90,6 @@ This established that aggregate cooperation could fall rapidly under the impleme
 ## 7. Exploratory run B — longer baseline
 
 Configuration: `N=30`, `G=50`, `n_rounds=100`, `sigma=0.05`, seed `42`.
-
-This run executes `435` pairwise matches and `43,500` game rounds per generation, `2,175,000` game rounds total.
 
 Generation 0:
 
@@ -112,7 +110,7 @@ Generation 49:
 - `R_opp≈0.1526`;
 - `R_self≈0.3261`.
 
-The run therefore ends in a strongly defection-dominated regime with substantial own-action persistence and weaker positive opponent responsiveness.
+The run ends in a strongly defection-dominated regime with substantial own-action persistence and weaker positive opponent responsiveness.
 
 ## 8. Regime change observed
 
@@ -124,9 +122,7 @@ The 50-generation trajectory is not a smooth move toward AllD or TFT.
 
 `(p_CC,p_CD,p_DC,p_DD) ≈ (0.261,0.283,0.114,0.825)`.
 
-This implies an unusual mutual-state dynamic: after `DD`, cooperation becomes likely; after `CC`, defection becomes comparatively likely. It is better described as anti-persistent / alternating structure than reciprocity.
-
-The explicit indices reflect this phase: by generation 19, both `R_opp` and `R_self` are negative (`≈ -0.366` and `≈ -0.198`).
+This is better described as anti-persistent / alternating structure than reciprocity. By generation 19, `R_opp≈-0.366` and `R_self≈-0.198`.
 
 ### Roughly generations 30–49
 
@@ -141,26 +137,39 @@ Under a mean-policy approximation:
 
 This explains why high `p_CC` does not rescue aggregate cooperation: many matches enter defection early and become trapped there.
 
-The stationary self-play approximation of the generation-49 mean policy predicts cooperation around `0.167`, close to the observed `0.152`; this is diagnostic only because the true population remains heterogeneous.
+## 9. Reproducibility gate — passed
 
-## 9. Key conceptual correction
+RNG ownership is now explicit at the run level.
 
-The late population is **not TFT-like**.
+The run creates exactly one generator with:
 
-At generation 49:
+`rng = np.random.default_rng(seed)`
 
-- opponent-action effect `R_opp ≈ +0.153`;
-- own-action persistence effect `R_self ≈ +0.326`.
+and the same generator is passed explicitly through:
 
-The stronger signal is therefore persistence / path dependence on the agent's own previous action, not pure opponent reciprocity.
+- initial population sampling;
+- stochastic action choice;
+- fitness evaluation;
+- parent selection;
+- Gaussian mutation;
+- next-generation construction.
 
-TFT would require approximately `(1,1,0,1,0)`. The late mean instead has low `p_DC` and moderate `p_CD`, which violates a central TFT asymmetry.
+No `Policy` or `Population` object stores hidden RNG state.
 
-Do not describe EXP-001 as having discovered TFT or established reciprocal cooperation.
+A short verification run with `N=30`, `G=5`, `n_rounds=100`, `sigma=0.05` confirmed:
+
+- run A with `seed=42` and run B with `seed=42` were identical generation by generation, including scalar observables and policy arrays;
+- run C with `seed=43` differed already at generation 0 in the random population and derived observables.
+
+Therefore the current implementation satisfies the intended computational reproducibility invariant:
+
+`same code + same configuration + same seed -> same trajectory`.
+
+And independent seeds produce distinct stochastic realizations.
 
 ## 10. Scientific interpretation so far
 
-For this seed and configuration:
+For the seed-42 exploratory baseline:
 
 - selection does not maximize mean population fitness;
 - cooperation can collapse while conditional policy structure becomes stronger;
@@ -169,7 +178,7 @@ For this seed and configuration:
 - regime transitions can occur within one evolutionary run;
 - aggregate cooperation alone is insufficient to classify the evolved mechanism.
 
-All of these remain exploratory observations from one seed.
+These remain exploratory observations from one seed until replicated.
 
 ## 11. Runtime / implementation status
 
@@ -177,33 +186,35 @@ Runtime scales approximately as:
 
 `G * N(N-1)/2 * n_rounds`.
 
-The first safe performance cleanups are now implemented:
+Implemented safe performance cleanups:
 
-- action choice uses a Bernoulli draw via `rng.random() < p` rather than `rng.choice([C,D], p=[p,1-p])`;
-- the payoff table is created once in `Game.__init__` rather than reconstructed every round;
-- the previous internal `Game.history/_get_stats()` path has been removed;
-- experiment arguments are explicit.
+- action choice uses `rng.random() < p` for Bernoulli action sampling;
+- the payoff table is created once in `Game.__init__`;
+- joint action state is formed directly with `action_a + action_b`;
+- the redundant internal `Game.history/_get_stats()` path has been removed;
+- experiment arguments are explicit;
+- stochastic dependencies are visible in method signatures.
 
-For this code path and seed, the optimized Bernoulli action implementation reproduced the previous 50-generation trajectory exactly. Treat that as an empirical property of this implementation, not as a general guarantee about RNG stream equivalence after refactoring.
+## 12. Remaining methodological work
 
-A remaining micro-cleanup is to build the joint state directly with `action_a + action_b` instead of allocating a temporary list for `"".join(...)`; this is optional.
+Before large replication:
 
-## 12. Remaining cleanup / methodological work
-
-- make RNG ownership explicit per experimental run so independent seeds are cleanly isolated;
-- add an interaction term for the 2x2 memory-one response table if useful;
+- persist run configuration alongside trajectory (`seed`, `N`, `G`, `n_rounds`, `sigma`);
+- preferably make the experiment create its own `Game` from `num_rounds` so the run is fully self-contained;
+- optionally clean type annotations such as `str | None` for first-round state and `list[Policy] | None` for population construction;
+- add an interaction term for the 2x2 memory-one response table only if scientifically useful;
 - record mutation clipping frequency later;
-- consider repeated pair matches or another method to quantify stochastic fitness noise;
-- persist experiment configuration alongside each run before scaling replication.
+- consider repeated pair matches or another method to quantify stochastic fitness noise.
 
 ## 13. Immediate next gate
 
-1. make the RNG a run-owned dependency rather than a module-global object;
-2. preserve the seed-42 50-generation trajectory as the baseline;
-3. repeat the same configuration across multiple independent seeds;
-4. compare trajectories of cooperation, mean fitness, `R_opp`, `R_self`, and the five policy parameters;
-5. only then assess whether defection trapping, regime transitions, opponent responsiveness, and own-action persistence are reproducible.
+1. define a run result structure that stores configuration separately from per-generation history;
+2. keep one self-contained experiment interface such as `(seed, N, G, n_rounds, sigma) -> run_result`;
+3. verify the stored configuration is sufficient to reproduce a run;
+4. then execute the first small multi-seed batch with the same baseline configuration;
+5. compare cooperation, mean fitness, `R_opp`, `R_self`, and the five policy parameters across seeds;
+6. only then assess whether defection trapping, regime transitions, opponent responsiveness, and own-action persistence are reproducible.
 
 ## 14. Resume instruction
 
-Resume at **run-level RNG ownership and multi-seed replication**. Conditional-response decomposition and the first safe performance cleanups are implemented. Do not revisit basic Prisoner's Dilemma foundations or already validated evolutionary operators unless a regression appears.
+Resume at **run-result design and first multi-seed replication**. Run-level RNG ownership and computational reproducibility are validated. Do not revisit RNG plumbing, Prisoner's Dilemma foundations, or already validated evolutionary operators unless a regression appears.
