@@ -1,10 +1,10 @@
 # CURRENT_STATE.md
 
 **Last updated:** 2026-09-11  
-**Project phase:** Stage 0H — EXP-001 mechanism-level multi-seed analysis  
+**Project phase:** Stage 0H — EXP-001 finite-population / mechanism analysis  
 **Implementation status:** CORE SIMULATOR, FITNESS, SELECTION, MUTATION, RANDOM INITIALIZATION, RUN-OWNED RNG, ALIGNED HISTORY, BEHAVIOURAL OBSERVABLES, POLICY MEAN/STD, CONDITIONAL-RESPONSE OBSERVABLES, FULL MEMORY-ONE DECOMPOSITION AND FIRST PERFORMANCE CLEANUPS IMPLEMENTED  
-**Previous gate:** COMPLETED — five-seed trajectories for cooperation, `R_opp`, `R_self`, `mu`, interaction `I`, and `p0` plotted  
-**Next task:** diagnose raw policy parameters and state occupancy, especially seed 44 collapse and seed 46 late recovery
+**Previous gate:** COMPLETED — exploratory `N=100, G=100, n_rounds=100` five-seed batch compared qualitatively with the earlier `N=30` batch  
+**Next task:** test the population-size hypothesis with a controlled same-seed comparison and quantify between-seed dispersion
 
 ## 1. Stable project purpose
 
@@ -110,7 +110,7 @@ Generation-49 endpoints:
 
 The endpoints show substantial cross-seed variation. `R_self > R_opp` is not universal, so the seed-42 late-state interpretation cannot be generalized.
 
-## 8. Cooperation trajectory comparison
+## 8. Cooperation trajectory comparison at N=30
 
 The five cooperation trajectories are strongly non-monotonic and diverge despite similar initial values near 0.5.
 
@@ -135,38 +135,16 @@ Important observations:
 
 Therefore positive `R_opp` or `R_self` is not sufficient for high aggregate cooperation.
 
-## 10. Full policy-decomposition trajectory findings
+## 10. Full policy-decomposition findings at N=30
 
 `mu`, `I`, and `p0` were plotted across seeds together with cooperation and the response indices.
 
-### Baseline level `mu`
+- `mu` tracks the broad direction of cooperation more closely than the response contrasts in several runs;
+- seed 44's cooperation collapse accompanies a large decline in `mu`;
+- seed 46's late recovery is larger than its `mu` recovery and coincides with a large positive interaction `I`, suggesting occupancy / conditional-structure effects;
+- `p0` does not track long-run cooperation and is expected to be weakly selected at `n_rounds=100` because it directly affects only the first round.
 
-`mu` tracks the broad direction of cooperation much more closely than the response contrasts in several runs.
-
-- seed 44: `mu` rises early with the initial cooperation surge, then falls persistently from roughly 0.6 toward about 0.18 while cooperation collapses toward 0.10;
-- seed 43: both `mu` and cooperation trend downward strongly;
-- seed 42: falling `mu` is consistent with its broad cooperation decline, although local deviations remain;
-- seed 46: `mu` recovers only moderately to about 0.4 while observed cooperation rises much more sharply, up to about 0.6.
-
-Thus `mu` explains an important level effect but not the full behaviour, especially seed 46.
-
-### First-round probability `p0`
-
-`p0` is not a plausible main driver of long-run cooperation under `n_rounds=100` because it directly affects only 1 of 100 rounds per match.
-
-The trajectories support this: seed 46's late cooperation recovery occurs while `p0` remains low / declines, and seed 44's cooperation can remain low even while `p0` later rises.
-
-### Interaction `I`
-
-The interaction contrast uses the unscaled convention
-
-`I = p_CC-p_CD-p_DC+p_DD`
-
-so its valid range is `[-2,2]`; values above 1 are not an error.
-
-Seed 46 shows the clearest interaction signal: `I` rises sharply around the same late interval in which cooperation recovers, reaching roughly 1 or above. This suggests the recovered regime develops a strong distinction between homogeneous previous outcomes (`CC`,`DD`) and mixed outcomes (`CD`,`DC`). This is not itself evidence of reciprocity or cooperation because positive `I` can be produced by high `p_CC`, high `p_DD`, or both.
-
-Seed 44, by contrast, loses cooperation mainly while `mu` falls; its interaction remains comparatively modest. This makes seed 44 and seed 46 useful contrasting cases.
+The interaction uses the unscaled convention `I = p_CC-p_CD-p_DC+p_DD`, valid range `[-2,2]`.
 
 ## 11. Key mathematical interpretation
 
@@ -197,9 +175,39 @@ Therefore aggregate player-perspective mixed-state occupancy satisfies
 
 `q_CD = q_DC = mixed_rate/2`.
 
-Separate stored joint `CD_rate` and `DC_rate` can still be useful for diagnostics, but they should not be interpreted directly as unequal population-level self-centric occupancies.
+## 13. Exploratory population-size pilot: N=100
 
-## 13. Runtime / implementation status
+Jonathan increased the population from `N=30` to `N=100` and extended the run to `G=100`, keeping `n_rounds=100` and the same five seeds `42..46`.
+
+Qualitative observations from the new trajectories:
+
+- cooperation becomes much more similar across seeds than in the `N=30` batch;
+- all five runs decline from initial cooperation near 0.5 toward a low-cooperation band, roughly around 0.1-0.2 after the early/middle generations;
+- the large seed-specific late recovery seen for seed 46 at `N=30` is absent in the `N=100` trajectories;
+- `mu` also converges much more tightly, around a low conditional-cooperation level;
+- `p0` remains highly divergent across seeds even when observed cooperation is similar, consistent with `p0` being weakly selected over 100-round matches;
+- `R_opp`, `R_self`, and `I` retain substantial cross-seed structural variation despite more similar aggregate cooperation.
+
+This suggests a possible **behavioural convergence with policy-parameter degeneracy**: larger populations may produce more reproducible low-cooperation behaviour while allowing different conditional policy structures to realize it.
+
+### Why population size can matter in this implementation
+
+Increasing `N` changes several finite-population mechanisms simultaneously:
+
+1. the random initial population mean is sampled more precisely (`SE(mean) ~ 1/sqrt(N)`);
+2. fitness-proportional reproduction has weaker multinomial sampling noise in frequencies (`~1/sqrt(N)`);
+3. each individual is evaluated against `N-1` opponents, so larger `N` also reduces stochastic/opponent-composition noise in fitness;
+4. more offspring are produced each generation, increasing mutational supply and sampling the mutation distribution more densely.
+
+Therefore the current implementation structurally couples **population size** and **fitness-evaluation sample size**.
+
+### Important control point
+
+Changing total run length from `G=50` to `G=100` does not affect generations `0..49` because the simulator has no look-ahead. Therefore the first 50 generations of the `N=100` runs can be compared directly against the previous `N=30, G=50` runs, provided `n_rounds`, `sigma`, seeds, and code path are otherwise unchanged.
+
+The endpoint at generation 99, however, cannot be compared to generation 49 as a pure population-size effect.
+
+## 14. Runtime / implementation status
 
 Safe performance cleanups implemented:
 
@@ -209,11 +217,13 @@ Safe performance cleanups implemented:
 - redundant internal `Game.history/_get_stats()` removed;
 - run arguments are explicit.
 
-Runtime still scales approximately as:
+Runtime scales approximately as:
 
 `G * N(N-1)/2 * n_rounds`.
 
-## 14. Remaining cleanup / methodological work
+`N=100, G=100, n_rounds=100` implies about `49.5 million` game rounds per seed, so controlled replication should account for quadratic scaling in `N`.
+
+## 15. Remaining cleanup / methodological work
 
 Non-blocking code cleanup:
 
@@ -224,20 +234,23 @@ Non-blocking code cleanup:
 
 Methodological work:
 
-- inspect raw mean-policy trajectories `p_CC,p_CD,p_DC,p_DD`, especially seeds 44 and 46;
-- compare them against `CC`, `mixed`, and `DD` occupancy;
-- use seed 44 vs seed 46 as a targeted mechanism comparison before adding more seeds;
+- quantify the population-size effect rather than relying on visual comparison;
+- compare cross-seed means and dispersion of cooperation and `mu` for `N=30` vs `N=100` over the common first 50 generations;
+- compare policy diversity (`std_policy`) and between-seed parameter dispersion;
+- decide whether to decouple population size from number of opponents used for fitness evaluation in a later experiment;
+- inspect raw policy / occupancy mechanisms after the finite-population comparison;
 - record mutation clipping frequency later;
 - quantify stochastic fitness noise later.
 
-## 15. Immediate next gate
+## 16. Immediate next gate
 
-1. plot the four raw conditional mean-policy parameters for **seed 44 and seed 46**;
-2. plot `CC_rate`, `mixed_rate`, and `DD_rate` for those same two runs;
-3. diagnose which raw parameter(s) generate seed 46's large positive interaction and late cooperation recovery;
-4. diagnose whether seed 44's collapse is primarily a falling baseline level `mu`, a shift in state occupancy, or both;
-5. only after this targeted mechanism comparison compute cross-seed aggregate summaries or expand the seed count.
+1. treat the existing `N=30` and `N=100` runs as an exploratory population-size pilot;
+2. over generations `0..49`, compute for each `N` and generation the cross-seed mean and standard deviation (or quantiles) of `cooperation_rate` and `mu`;
+3. compare how between-seed dispersion evolves with `N`;
+4. compare `std_policy` to test whether larger `N` changes within-population diversity as well as between-run variability;
+5. if the effect persists, run a controlled confirmatory grid with the same seeds and fixed `G`, `n_rounds`, and `sigma` across population sizes;
+6. distinguish two hypotheses: larger `N` changes the mean evolutionary trajectory vs larger `N` mainly suppresses finite-population stochasticity.
 
-## 16. Resume instruction
+## 17. Resume instruction
 
-Resume at **seed-44 vs seed-46 raw-policy and state-occupancy diagnosis**. `mu`, `R_self`, `R_opp`, `I`, and `p0` trajectories are available for seeds 42-46. Do not infer behaviour from the contrasts alone; combine policy decomposition with occupancy.
+Resume at **controlled population-size analysis**. The `N=100` pilot visually shows much lower cross-seed variation in cooperation than `N=30`, but this is not yet a causal conclusion. Quantify cross-seed dispersion over the common first 50 generations and keep population size separate conceptually from the number of opponent evaluations used to estimate fitness.
